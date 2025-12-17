@@ -1,5 +1,6 @@
 import pandas as pd
 import requests
+from datetime import datetime, timezone
 import time
 
 
@@ -122,6 +123,7 @@ if __name__ == "__main__":
     combined.to_csv("nfl_team_records.csv", index=False)
 
     # Write an HTML report with both tables.
+    updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     html = """
 <!doctype html>
 <html lang=\"en\">
@@ -134,10 +136,12 @@ if __name__ == "__main__":
         table {{ border-collapse: collapse; width: 100%; margin-bottom: 32px; }}
         th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
         th {{ background: #f2f2f2; font-weight: bold; }}
+        .updated {{ color: #555; margin: 0 0 16px 0; font-size: 0.9rem; }}
     </style>
 </head>
 <body>
     <h1>NFL Teams & Playoff Picture</h1>
+    <p class=\"updated\">Last updated: {updated_at}</p>
     <h2>Playoff Teams</h2>
     {playoff_table}
     <h2>Non-Playoff Teams</h2>
@@ -145,6 +149,7 @@ if __name__ == "__main__":
 </body>
 </html>
 """.format(
+        updated_at=updated_at,
     playoff_table=playoff_sorted.to_html(index=False, border=0, justify="left"),
         non_table=non_playoff_sorted.to_html(index=False, border=0, justify="left"),
     )
