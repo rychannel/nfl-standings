@@ -1,0 +1,474 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>NFL Teams & Playoff Wins</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 24px; }
+        h1, h2 { margin-bottom: 8px; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 32px; }
+        th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+        th { background: #f2f2f2; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>NFL Teams & Playoff Picture</h1>
+    <h2>Playoff Teams</h2>
+    <table class="dataframe">
+  <thead>
+    <tr style="text-align: left;">
+      <th>id</th>
+      <th>team</th>
+      <th>wins</th>
+      <th>losses</th>
+      <th>win_pct</th>
+      <th>conference</th>
+      <th>opponents_beaten</th>
+      <th>playoff_opponents_beaten</th>
+      <th>playoff_beaten_count</th>
+      <th>playoff_teams_played</th>
+      <th>in_playoffs</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>14</td>
+      <td>Los Angeles Rams</td>
+      <td>11</td>
+      <td>3</td>
+      <td>0.785714</td>
+      <td>National Football Conference</td>
+      <td>[Houston Texans, Tennessee Titans, Indianapolis Colts, Baltimore Ravens, Jacksonville Jaguars, New Orleans Saints, San Francisco 49ers, Seattle Seahawks, Tampa Bay Buccaneers, Arizona Cardinals, Detroit Lions]</td>
+      <td>[Houston Texans, Jacksonville Jaguars, San Francisco 49ers, Seattle Seahawks, Detroit Lions]</td>
+      <td>5</td>
+      <td>6</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>Green Bay Packers</td>
+      <td>9</td>
+      <td>4</td>
+      <td>0.678571</td>
+      <td>National Football Conference</td>
+      <td>[Detroit Lions, Washington Commanders, Cincinnati Bengals, Arizona Cardinals, Pittsburgh Steelers, New York Giants, Minnesota Vikings, Detroit Lions, Chicago Bears]</td>
+      <td>[Detroit Lions, Pittsburgh Steelers, Detroit Lions, Chicago Bears]</td>
+      <td>4</td>
+      <td>5</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>Denver Broncos</td>
+      <td>12</td>
+      <td>2</td>
+      <td>0.857143</td>
+      <td>American Football Conference</td>
+      <td>[Tennessee Titans, Cincinnati Bengals, Philadelphia Eagles, New York Jets, New York Giants, Dallas Cowboys, Houston Texans, Las Vegas Raiders, Kansas City Chiefs, Washington Commanders, Las Vegas Raiders, Green Bay Packers]</td>
+      <td>[Philadelphia Eagles, Houston Texans, Green Bay Packers]</td>
+      <td>3</td>
+      <td>4</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>26</td>
+      <td>Seattle Seahawks</td>
+      <td>11</td>
+      <td>3</td>
+      <td>0.785714</td>
+      <td>National Football Conference</td>
+      <td>[Pittsburgh Steelers, New Orleans Saints, Arizona Cardinals, Jacksonville Jaguars, Houston Texans, Washington Commanders, Arizona Cardinals, Tennessee Titans, Minnesota Vikings, Atlanta Falcons, Indianapolis Colts]</td>
+      <td>[Pittsburgh Steelers, Jacksonville Jaguars, Houston Texans]</td>
+      <td>3</td>
+      <td>5</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>30</td>
+      <td>Jacksonville Jaguars</td>
+      <td>10</td>
+      <td>4</td>
+      <td>0.714286</td>
+      <td>American Football Conference</td>
+      <td>[Carolina Panthers, Houston Texans, San Francisco 49ers, Kansas City Chiefs, Las Vegas Raiders, Los Angeles Chargers, Arizona Cardinals, Tennessee Titans, Indianapolis Colts, New York Jets]</td>
+      <td>[Houston Texans, San Francisco 49ers, Los Angeles Chargers]</td>
+      <td>3</td>
+      <td>5</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>24</td>
+      <td>Los Angeles Chargers</td>
+      <td>10</td>
+      <td>4</td>
+      <td>0.714286</td>
+      <td>American Football Conference</td>
+      <td>[Kansas City Chiefs, Las Vegas Raiders, Denver Broncos, Miami Dolphins, Minnesota Vikings, Tennessee Titans, Pittsburgh Steelers, Las Vegas Raiders, Philadelphia Eagles, Kansas City Chiefs]</td>
+      <td>[Denver Broncos, Pittsburgh Steelers, Philadelphia Eagles]</td>
+      <td>3</td>
+      <td>4</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>34</td>
+      <td>Houston Texans</td>
+      <td>9</td>
+      <td>5</td>
+      <td>0.642857</td>
+      <td>American Football Conference</td>
+      <td>[Tennessee Titans, Baltimore Ravens, San Francisco 49ers, Jacksonville Jaguars, Tennessee Titans, Buffalo Bills, Indianapolis Colts, Kansas City Chiefs, Arizona Cardinals]</td>
+      <td>[San Francisco 49ers, Jacksonville Jaguars, Buffalo Bills]</td>
+      <td>3</td>
+      <td>6</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>21</td>
+      <td>Philadelphia Eagles</td>
+      <td>9</td>
+      <td>5</td>
+      <td>0.642857</td>
+      <td>National Football Conference</td>
+      <td>[Dallas Cowboys, Kansas City Chiefs, Los Angeles Rams, Tampa Bay Buccaneers, Minnesota Vikings, New York Giants, Green Bay Packers, Detroit Lions, Las Vegas Raiders]</td>
+      <td>[Los Angeles Rams, Green Bay Packers, Detroit Lions]</td>
+      <td>3</td>
+      <td>6</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Buffalo Bills</td>
+      <td>10</td>
+      <td>4</td>
+      <td>0.714286</td>
+      <td>American Football Conference</td>
+      <td>[Baltimore Ravens, New York Jets, Miami Dolphins, New Orleans Saints, Carolina Panthers, Kansas City Chiefs, Tampa Bay Buccaneers, Pittsburgh Steelers, Cincinnati Bengals, New England Patriots]</td>
+      <td>[Pittsburgh Steelers, New England Patriots]</td>
+      <td>2</td>
+      <td>3</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Chicago Bears</td>
+      <td>10</td>
+      <td>4</td>
+      <td>0.714286</td>
+      <td>National Football Conference</td>
+      <td>[Dallas Cowboys, Las Vegas Raiders, Washington Commanders, New Orleans Saints, Cincinnati Bengals, New York Giants, Minnesota Vikings, Pittsburgh Steelers, Philadelphia Eagles, Cleveland Browns]</td>
+      <td>[Pittsburgh Steelers, Philadelphia Eagles]</td>
+      <td>2</td>
+      <td>4</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>25</td>
+      <td>San Francisco 49ers</td>
+      <td>10</td>
+      <td>4</td>
+      <td>0.714286</td>
+      <td>National Football Conference</td>
+      <td>[Seattle Seahawks, New Orleans Saints, Arizona Cardinals, Los Angeles Rams, Atlanta Falcons, New York Giants, Arizona Cardinals, Carolina Panthers, Cleveland Browns, Tennessee Titans]</td>
+      <td>[Seattle Seahawks, Los Angeles Rams]</td>
+      <td>2</td>
+      <td>4</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>17</td>
+      <td>New England Patriots</td>
+      <td>11</td>
+      <td>3</td>
+      <td>0.785714</td>
+      <td>American Football Conference</td>
+      <td>[Miami Dolphins, Carolina Panthers, Buffalo Bills, New Orleans Saints, Tennessee Titans, Cleveland Browns, Atlanta Falcons, Tampa Bay Buccaneers, New York Jets, Cincinnati Bengals, New York Giants]</td>
+      <td>[Buffalo Bills]</td>
+      <td>1</td>
+      <td>2</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>23</td>
+      <td>Pittsburgh Steelers</td>
+      <td>8</td>
+      <td>6</td>
+      <td>0.571429</td>
+      <td>American Football Conference</td>
+      <td>[New York Jets, New England Patriots, Minnesota Vikings, Cleveland Browns, Indianapolis Colts, Cincinnati Bengals, Baltimore Ravens, Miami Dolphins]</td>
+      <td>[New England Patriots]</td>
+      <td>1</td>
+      <td>6</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>Detroit Lions</td>
+      <td>8</td>
+      <td>6</td>
+      <td>0.571429</td>
+      <td>National Football Conference</td>
+      <td>[Chicago Bears, Baltimore Ravens, Cleveland Browns, Cincinnati Bengals, Tampa Bay Buccaneers, Washington Commanders, New York Giants, Dallas Cowboys]</td>
+      <td>[Chicago Bears]</td>
+      <td>1</td>
+      <td>4</td>
+      <td>True</td>
+    </tr>
+  </tbody>
+</table>
+    <h2>Non-Playoff Teams</h2>
+    <table class="dataframe">
+  <thead>
+    <tr style="text-align: left;">
+      <th>id</th>
+      <th>team</th>
+      <th>wins</th>
+      <th>losses</th>
+      <th>win_pct</th>
+      <th>conference</th>
+      <th>opponents_beaten</th>
+      <th>playoff_opponents_beaten</th>
+      <th>playoff_beaten_count</th>
+      <th>playoff_teams_played</th>
+      <th>in_playoffs</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>27</td>
+      <td>Tampa Bay Buccaneers</td>
+      <td>7</td>
+      <td>7</td>
+      <td>0.500000</td>
+      <td>National Football Conference</td>
+      <td>[Atlanta Falcons, Houston Texans, New York Jets, Seattle Seahawks, San Francisco 49ers, New Orleans Saints, Arizona Cardinals]</td>
+      <td>[Houston Texans, Seattle Seahawks, San Francisco 49ers]</td>
+      <td>3</td>
+      <td>3</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>11</td>
+      <td>Indianapolis Colts</td>
+      <td>8</td>
+      <td>6</td>
+      <td>0.571429</td>
+      <td>American Football Conference</td>
+      <td>[Miami Dolphins, Denver Broncos, Tennessee Titans, Las Vegas Raiders, Arizona Cardinals, Los Angeles Chargers, Tennessee Titans, Atlanta Falcons]</td>
+      <td>[Denver Broncos, Los Angeles Chargers]</td>
+      <td>2</td>
+      <td>2</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>29</td>
+      <td>Carolina Panthers</td>
+      <td>7</td>
+      <td>7</td>
+      <td>0.500000</td>
+      <td>National Football Conference</td>
+      <td>[Atlanta Falcons, Miami Dolphins, Dallas Cowboys, New York Jets, Green Bay Packers, Atlanta Falcons, Los Angeles Rams]</td>
+      <td>[Green Bay Packers, Los Angeles Rams]</td>
+      <td>2</td>
+      <td>2</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td>Minnesota Vikings</td>
+      <td>6</td>
+      <td>8</td>
+      <td>0.428571</td>
+      <td>National Football Conference</td>
+      <td>[Chicago Bears, Cincinnati Bengals, Cleveland Browns, Detroit Lions, Washington Commanders, Dallas Cowboys]</td>
+      <td>[Chicago Bears, Detroit Lions]</td>
+      <td>2</td>
+      <td>2</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Cincinnati Bengals</td>
+      <td>4</td>
+      <td>10</td>
+      <td>0.285714</td>
+      <td>American Football Conference</td>
+      <td>[Cleveland Browns, Jacksonville Jaguars, Pittsburgh Steelers, Baltimore Ravens]</td>
+      <td>[Jacksonville Jaguars, Pittsburgh Steelers]</td>
+      <td>2</td>
+      <td>2</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>19</td>
+      <td>New York Giants</td>
+      <td>2</td>
+      <td>12</td>
+      <td>0.142857</td>
+      <td>National Football Conference</td>
+      <td>[Los Angeles Chargers, Philadelphia Eagles]</td>
+      <td>[Los Angeles Chargers, Philadelphia Eagles]</td>
+      <td>2</td>
+      <td>2</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>33</td>
+      <td>Baltimore Ravens</td>
+      <td>7</td>
+      <td>7</td>
+      <td>0.500000</td>
+      <td>American Football Conference</td>
+      <td>[Cleveland Browns, Chicago Bears, Miami Dolphins, Minnesota Vikings, Cleveland Browns, New York Jets, Cincinnati Bengals]</td>
+      <td>[Chicago Bears]</td>
+      <td>1</td>
+      <td>1</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>Dallas Cowboys</td>
+      <td>6</td>
+      <td>7</td>
+      <td>0.464286</td>
+      <td>National Football Conference</td>
+      <td>[New York Giants, New York Jets, Washington Commanders, Las Vegas Raiders, Philadelphia Eagles, Kansas City Chiefs]</td>
+      <td>[Philadelphia Eagles]</td>
+      <td>1</td>
+      <td>1</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>Kansas City Chiefs</td>
+      <td>6</td>
+      <td>8</td>
+      <td>0.428571</td>
+      <td>American Football Conference</td>
+      <td>[New York Giants, Baltimore Ravens, Detroit Lions, Las Vegas Raiders, Washington Commanders, Indianapolis Colts]</td>
+      <td>[Detroit Lions]</td>
+      <td>1</td>
+      <td>1</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>Miami Dolphins</td>
+      <td>6</td>
+      <td>8</td>
+      <td>0.428571</td>
+      <td>American Football Conference</td>
+      <td>[New York Jets, Atlanta Falcons, Buffalo Bills, Washington Commanders, New Orleans Saints, New York Jets]</td>
+      <td>[Buffalo Bills]</td>
+      <td>1</td>
+      <td>1</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>Atlanta Falcons</td>
+      <td>5</td>
+      <td>9</td>
+      <td>0.357143</td>
+      <td>National Football Conference</td>
+      <td>[Minnesota Vikings, Washington Commanders, Buffalo Bills, New Orleans Saints, Tampa Bay Buccaneers]</td>
+      <td>[Buffalo Bills]</td>
+      <td>1</td>
+      <td>1</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>28</td>
+      <td>Washington Commanders</td>
+      <td>4</td>
+      <td>10</td>
+      <td>0.285714</td>
+      <td>National Football Conference</td>
+      <td>[New York Giants, Las Vegas Raiders, Los Angeles Chargers, New York Giants]</td>
+      <td>[Los Angeles Chargers]</td>
+      <td>1</td>
+      <td>1</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Cleveland Browns</td>
+      <td>3</td>
+      <td>11</td>
+      <td>0.214286</td>
+      <td>American Football Conference</td>
+      <td>[Green Bay Packers, Miami Dolphins, Las Vegas Raiders]</td>
+      <td>[Green Bay Packers]</td>
+      <td>1</td>
+      <td>1</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td>Las Vegas Raiders</td>
+      <td>2</td>
+      <td>12</td>
+      <td>0.142857</td>
+      <td>American Football Conference</td>
+      <td>[New England Patriots, Tennessee Titans]</td>
+      <td>[New England Patriots]</td>
+      <td>1</td>
+      <td>1</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>18</td>
+      <td>New Orleans Saints</td>
+      <td>4</td>
+      <td>10</td>
+      <td>0.285714</td>
+      <td>National Football Conference</td>
+      <td>[New York Giants, Carolina Panthers, Tampa Bay Buccaneers, Carolina Panthers]</td>
+      <td>[]</td>
+      <td>0</td>
+      <td>0</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>20</td>
+      <td>New York Jets</td>
+      <td>3</td>
+      <td>11</td>
+      <td>0.214286</td>
+      <td>American Football Conference</td>
+      <td>[Cincinnati Bengals, Cleveland Browns, Atlanta Falcons]</td>
+      <td>[]</td>
+      <td>0</td>
+      <td>0</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>22</td>
+      <td>Arizona Cardinals</td>
+      <td>3</td>
+      <td>11</td>
+      <td>0.214286</td>
+      <td>National Football Conference</td>
+      <td>[New Orleans Saints, Carolina Panthers, Dallas Cowboys]</td>
+      <td>[]</td>
+      <td>0</td>
+      <td>0</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>Tennessee Titans</td>
+      <td>2</td>
+      <td>12</td>
+      <td>0.142857</td>
+      <td>American Football Conference</td>
+      <td>[Arizona Cardinals, Cleveland Browns]</td>
+      <td>[]</td>
+      <td>0</td>
+      <td>0</td>
+      <td>False</td>
+    </tr>
+  </tbody>
+</table>
+</body>
+</html>

@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  nfl-standings:
+    build: .
+    container_name: nfl-standings
+    volumes:
+      - ./output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: on-failure
