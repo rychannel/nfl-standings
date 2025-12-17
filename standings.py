@@ -1,5 +1,6 @@
 import pandas as pd
 import requests
+import time
 
 
 STANDINGS_URL = "https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings"
@@ -150,3 +151,5 @@ if __name__ == "__main__":
 
     with open("nfl_team_records.html", "w", encoding="utf-8") as f:
         f.write(html)
+
+    time.sleep(8*60*60)  # Sleep for 8 hours before ending the script, comment this line out if you want to run the script on demand
