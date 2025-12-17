@@ -2,11 +2,12 @@ import pandas as pd
 import requests
 from datetime import datetime, timezone
 import time
+import os
+import shutil
 
 
 STANDINGS_URL = "https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings"
 SCHEDULE_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{team_id}/schedule"
-
 
 def _fetch_json(url: str) -> dict:
     resp = requests.get(url, timeout=20)
@@ -156,7 +157,33 @@ if __name__ == "__main__":
 
     with open("nfl_team_records.html", "w", encoding="utf-8") as f:
         f.write(html)
+
+    # Move CSV and HTML to OUTPUT_DIR only if DOCKER environment is set
+    is_docker = os.environ.get("DOCKER", "").lower() in ("true", "1", "yes")
+    output_dir = os.environ.get("OUTPUT_DIR")
     
-    print("Report generated: nfl_team_records.html")
-    print("Going to sleep for 8 hours to allow for scheduled runs...")
-    time.sleep(8*60*60)  # Sleep for 8 hours before ending the script, comment this line out if you want to run the script on demand
+    if is_docker and output_dir:
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            # Move CSV
+            src_csv = os.path.abspath("nfl_team_records.csv")
+            dst_csv = os.path.join(output_dir, "nfl_team_records.csv")
+            if os.path.exists(dst_csv):
+                os.remove(dst_csv)
+            shutil.move(src_csv, dst_csv)
+            # Move HTML
+            src_html = os.path.abspath("nfl_team_records.html")
+            dst_html = os.path.join(output_dir, "nfl_team_records.html")
+            if os.path.exists(dst_html):
+                os.remove(dst_html)
+            shutil.move(src_html, dst_html)
+            print(f"Reports moved to: {output_dir}")
+        except Exception as e:
+            print(f"Warning: failed to move files to OUTPUT_DIR: {e}")
+    else:
+        print("Reports generated locally: nfl_team_records.csv, nfl_team_records.html")
+    
+    # Sleep for 8 hours before ending the script, comment this line out if you want to run the script on demand
+    if is_docker:
+        print("Sleeping for 8 hours...")
+        time.sleep(8*60*60)
