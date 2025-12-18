@@ -1,0 +1,28 @@
+name: Deploy NFL Standings
+
+on:
+  workflow_dispatch:  # Allow manual trigger
+  push:
+    branches:
+      - main  # Change to your default branch name if different
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        port: ${{ secrets.VPS_PORT || 22 }}
+        script: |
+          cd ${{ secrets.VPS_PROJECT_PATH || '/home/$USER/nfl-standings' }}
+          git pull origin main
+          echo "Code deployed, now building containers..."
+          cd /opt/docker
+          docker compose up -d --build
+          echo "Deployment completed at $(date)"
