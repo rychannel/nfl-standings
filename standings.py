@@ -91,14 +91,20 @@ def build_dataset():
         team["playoff_opponents_beaten"] = playoff_beaten
         team["playoff_beaten_count"] = len(playoff_beaten)
         
-        # Count unique playoff teams played against (beaten or lost to)
-        playoff_played = set(opp for opp in beaten if opp in playoff_teams)
-        # Also check which playoff teams beat this team
-        for other_id, other_schedule in all_schedules.items():
-            if any(opp == team["team"] and opp in playoff_teams for opp in other_schedule):
-                for other_team in standings:
-                    if other_team["id"] == other_id and other_team["team"] in playoff_teams:
-                        playoff_played.add(other_team["team"])
+        # Count unique playoff teams played against (both wins and losses)
+        playoff_played = set()
+        
+        # Add playoff teams this team beat
+        for opp in beaten:
+            if opp in playoff_teams:
+                playoff_played.add(opp)
+        
+        # Add playoff teams that beat this team
+        for other_team in standings:
+            if other_team["team"] in playoff_teams:
+                other_beaten = all_schedules[other_team["id"]]
+                if team["team"] in other_beaten:
+                    playoff_played.add(other_team["team"])
         
         team["playoff_teams_played"] = len(playoff_played)
         team["in_playoffs"] = team["team"] in playoff_teams
