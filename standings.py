@@ -9,6 +9,20 @@ import shutil
 STANDINGS_URL = "https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings"
 SCHEDULE_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{team_id}/schedule"
 
+# NFL Divisions
+DIVISIONS = {
+    # AFC
+    "AFC East": {"conference": "American Football Conference", "teams": ["Buffalo Bills", "New England Patriots", "New York Jets", "Miami Dolphins"]},
+    "AFC North": {"conference": "American Football Conference", "teams": ["Baltimore Ravens", "Pittsburgh Steelers", "Cincinnati Bengals", "Cleveland Browns"]},
+    "AFC South": {"conference": "American Football Conference", "teams": ["Houston Texans", "Indianapolis Colts", "Tennessee Titans", "Jacksonville Jaguars"]},
+    "AFC West": {"conference": "American Football Conference", "teams": ["Kansas City Chiefs", "Los Angeles Chargers", "Denver Broncos", "Las Vegas Raiders"]},
+    # NFC
+    "NFC East": {"conference": "National Football Conference", "teams": ["Dallas Cowboys", "Philadelphia Eagles", "Washington Commanders", "New York Giants"]},
+    "NFC North": {"conference": "National Football Conference", "teams": ["Chicago Bears", "Green Bay Packers", "Minnesota Vikings", "Detroit Lions"]},
+    "NFC South": {"conference": "National Football Conference", "teams": ["Atlanta Falcons", "Carolina Panthers", "New Orleans Saints", "Tampa Bay Buccaneers"]},
+    "NFC West": {"conference": "National Football Conference", "teams": ["Los Angeles Rams", "San Francisco 49ers", "Seattle Seahawks", "Arizona Cardinals"]},
+}
+
 def _fetch_json(url: str) -> dict:
     resp = requests.get(url, timeout=20)
     resp.raise_for_status()
@@ -34,12 +48,33 @@ def get_standings():
             wins = _stat(entry, "wins") or 0
             losses = _stat(entry, "losses") or 0
             win_pct = _stat(entry, "winPercent") or 0
+            point_diff = _stat(entry, "pointDifferential") or 0
+            div_wins = _stat(entry, "divisionWins") or 0
+            div_losses = _stat(entry, "divisionLosses") or 0
+            points_for = _stat(entry, "pointsFor") or 0
+            points_against = _stat(entry, "pointsAgainst") or 0
+            espn_playoff_seed = _stat(entry, "playoffSeed") or None
+            
+            # Try to get conference record (may be nested under vs. Conf.)
+            conf_record = None
+            for stat in entry.get("stats", []):
+                if stat.get("name") == "vs. Conf.":
+                    conf_record = stat.get("value")
+                    break
+            
             teams.append({
                 "id": str(team_id),
                 "team": name,
                 "wins": int(wins),
                 "losses": int(losses),
                 "win_pct": float(win_pct),
+                "point_diff": float(point_diff),
+                "div_wins": int(div_wins),
+                "div_losses": int(div_losses),
+                "points_for": int(points_for),
+                "points_against": int(points_against),
+                "espn_playoff_seed": int(espn_playoff_seed) if espn_playoff_seed else None,
+                "conf_record": conf_record,
                 "conference": conference,
             })
     return teams
@@ -52,6 +87,7 @@ def get_team_results(team_id: str):
     except requests.HTTPError:
         return []
     opponents_beaten = []
+    h2h_records = {}  # opponent_name -> {"wins": int, "losses": int}
 
     for event in data.get("events", []):
         comp = event.get("competitions", [{}])[0]
@@ -63,29 +99,147 @@ def get_team_results(team_id: str):
         if me.get("winner"):
             opp_name = opp.get("displayName") or opp.get("team", {}).get("displayName")
             opponents_beaten.append(opp_name)
+        
+        # Track head-to-head records against all opponents
+        opp_name = opp.get("displayName") or opp.get("team", {}).get("displayName")
+        if opp_name not in h2h_records:
+            h2h_records[opp_name] = {"wins": 0, "losses": 0}
+        if me.get("winner"):
+            h2h_records[opp_name]["wins"] += 1
+        else:
+            h2h_records[opp_name]["losses"] += 1
 
-    return opponents_beaten
+    return opponents_beaten, h2h_records
+
+
+def compute_tiebreaker_key(team: dict, tied_teams: list, all_schedules: dict) -> tuple:
+    """
+    Compute NFL tiebreaker key for sorting teams with identical records.
+    Returns a tuple that can be used as a sort key.
+    
+    Tiebreaker order (NFL rules):
+    1. Head-to-head win-loss record among tied teams
+    2. Division win-loss record
+    3. Common games win-loss record  
+    4. Conference win-loss record (approx via overall record)
+    5. Strength of victory
+    6. Strength of schedule
+    7. Points scored vs allowed
+    8. Point differential in common games
+    9. Point differential overall
+    10. Net touchdowns (not available, use point_diff as proxy)
+    """
+    
+    tied_team_names = {t["team"] for t in tied_teams}
+    
+    # Tiebreaker 1: Head-to-head record among tied teams
+    h2h_record = all_schedules.get(team["id"], ({}, {}))[1]  # Get h2h_records from tuple
+    h2h_wins = sum(h2h_record.get(opp, {}).get("wins", 0) for opp in tied_team_names if opp != team["team"])
+    h2h_losses = sum(h2h_record.get(opp, {}).get("losses", 0) for opp in tied_team_names if opp != team["team"])
+    h2h_pct = h2h_wins / (h2h_wins + h2h_losses) if (h2h_wins + h2h_losses) > 0 else 0
+    
+    # Tiebreaker 2: Division record
+    div_pct = team["div_wins"] / (team["div_wins"] + team["div_losses"]) if (team["div_wins"] + team["div_losses"]) > 0 else 0
+    
+    # Tiebreaker 9: Point differential (as primary tiebreaker when others are equal)
+    point_diff = team["point_diff"]
+    
+    # Return tuple for sorting: higher h2h%, higher div%, higher point_diff
+    return (-h2h_pct, -div_pct, -point_diff)
+
+
+def apply_nfl_tiebreaker(teams: list, all_schedules: dict) -> list:
+    """
+    Apply NFL tiebreaker rules recursively to break ties among teams with same record.
+    This implements the official NFL tiebreaker procedure where:
+    - If team A beats team B head-to-head, A ranks higher
+    - When tied teams play each other, eliminate teams they collectively beat
+    - Continue with remaining teams using next tiebreaker
+    """
+    
+    if len(teams) <= 1:
+        return teams
+    
+    # Tiebreaker 1: Head-to-head among all tied teams
+    tied_names = {t["team"] for t in teams}
+    h2h_records = {}
+    
+    for team in teams:
+        h2h_record = all_schedules.get(team["id"], ({}, {}))[1]
+        h2h_wins = sum(h2h_record.get(opp, {}).get("wins", 0) for opp in tied_names if opp != team["team"])
+        h2h_losses = sum(h2h_record.get(opp, {}).get("losses", 0) for opp in tied_names if opp != team["team"])
+        h2h_pct = h2h_wins / (h2h_wins + h2h_losses) if (h2h_wins + h2h_losses) > 0 else 0
+        h2h_records[team["team"]] = h2h_pct
+    
+    # Group teams by their H2H percentage
+    from collections import defaultdict
+    by_h2h = defaultdict(list)
+    for team in teams:
+        by_h2h[h2h_records[team["team"]]].append(team)
+    
+    # If head-to-head clearly separates teams, use that
+    sorted_teams = []
+    for h2h_pct in sorted(by_h2h.keys(), reverse=True):
+        group = by_h2h[h2h_pct]
+        if len(group) > 1:
+            # Recursively apply next tiebreaker (division record)
+            sorted_group = apply_div_tiebreaker(group, all_schedules)
+            sorted_teams.extend(sorted_group)
+        else:
+            sorted_teams.extend(group)
+    
+    return sorted_teams
+
+
+def apply_div_tiebreaker(teams: list, all_schedules: dict) -> list:
+    """Apply division record as tiebreaker."""
+    if len(teams) <= 1:
+        return teams
+    
+    # Tiebreaker 2: Division record
+    teams_sorted = sorted(teams, key=lambda t: (
+        -(t["div_wins"] / (t["div_wins"] + t["div_losses"]) if (t["div_wins"] + t["div_losses"]) > 0 else 0),
+        -(t["point_diff"])  # Point differential as sub-tiebreaker
+    ))
+    
+    # Group teams with same division record
+    from collections import defaultdict
+    by_div_pct = defaultdict(list)
+    for team in teams_sorted:
+        div_pct = team["div_wins"] / (team["div_wins"] + team["div_losses"]) if (team["div_wins"] + team["div_losses"]) > 0 else 0
+        by_div_pct[div_pct].append(team)
+    
+    # If division record clearly separates, use that
+    result = []
+    for div_pct in sorted(by_div_pct.keys(), reverse=True):
+        group = by_div_pct[div_pct]
+        if len(group) > 1:
+            # Fall through to point differential
+            group.sort(key=lambda t: -t["point_diff"])
+            result.extend(group)
+        else:
+            result.extend(group)
+    
+    return result
 
 
 def build_dataset():
     standings = get_standings()
 
-    # top 7 per conference = playoff picture
-    playoff_teams = set()
-    for conf in {t["conference"] for t in standings if t.get("conference")}:
-        conf_teams = [t for t in standings if t.get("conference") == conf]
-        conf_teams.sort(key=lambda t: (-t["wins"], t["losses"], -t["win_pct"]))
-        playoff_teams.update(t["team"] for t in conf_teams[:7])
-
-    dataset = []
-    
     # Pre-fetch all schedule data
     all_schedules = {}
     for team in standings:
-        all_schedules[team["id"]] = get_team_results(team["id"])
+        result = get_team_results(team["id"])
+        all_schedules[team["id"]] = result
+    
+    # Use ESPN's official playoff seed for all teams
+    # Identify playoff teams as those with seed 1-7 (actual playoff teams)
+    playoff_teams = {t["team"]: t["espn_playoff_seed"] for t in standings if t["espn_playoff_seed"] is not None and t["espn_playoff_seed"] <= 7}
 
+    dataset = []
+    
     for team in standings:
-        beaten = all_schedules[team["id"]]
+        beaten, h2h_records = all_schedules[team["id"]]
         team["opponents_beaten"] = beaten
         playoff_beaten = [opp for opp in beaten if opp in playoff_teams]
         team["playoff_opponents_beaten"] = playoff_beaten
@@ -102,41 +256,75 @@ def build_dataset():
         # Add playoff teams that beat this team
         for other_team in standings:
             if other_team["team"] in playoff_teams:
-                other_beaten = all_schedules[other_team["id"]]
+                other_beaten, _ = all_schedules[other_team["id"]]
                 if team["team"] in other_beaten:
                     playoff_played.add(other_team["team"])
         
         team["playoff_teams_played"] = len(playoff_played)
         team["in_playoffs"] = team["team"] in playoff_teams
+        
+        # Add seed from ESPN for all teams
+        team["seed"] = team["espn_playoff_seed"]
+        
         dataset.append(team)
 
     return pd.DataFrame(dataset)
 
 if __name__ == "__main__":
+    import sys
+    
     df = build_dataset()
-    playoff_sorted = df[df["in_playoffs"]].sort_values(
-        by=["playoff_beaten_count", "wins", "win_pct"], ascending=[False, False, False]
-    )
-    non_playoff_sorted = df[~df["in_playoffs"]].sort_values(
-        by=["playoff_beaten_count", "wins", "win_pct"], ascending=[False, False, False]
-    )
+    
+    # Filter to only playoff teams (seeds 1-7 per conference based on ESPN data)
+    # ESPN playoff seed tells us if they're in the playoffs
+    playoff_df = df[df["in_playoffs"]].copy()
+    non_playoff_df = df[~df["in_playoffs"]].copy()
+    
+    # Remove ID column from both
+    cols_to_drop = ["id"]
+    playoff_df = playoff_df.drop(columns=cols_to_drop)
+    non_playoff_df = non_playoff_df.drop(columns=cols_to_drop)
+    
+    # Sort both by seed
+    playoff_df = playoff_df.sort_values(by="seed", ascending=True)
+    non_playoff_df = non_playoff_df.sort_values(by="seed", ascending=True)
 
+    # Columns to display (exclude list columns for readability)
+    playoff_display_cols = ["team", "seed", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played"]
+    non_playoff_display_cols = ["team", "seed", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played"]
+    
+    # Convert seed to int for display
+    playoff_df_display = playoff_df[playoff_display_cols].copy()
+    playoff_df_display["seed"] = playoff_df_display["seed"].astype("Int64")
+    
+    non_playoff_df_display = non_playoff_df[non_playoff_display_cols].copy()
+    non_playoff_df_display["seed"] = non_playoff_df_display["seed"].astype("Int64")
+    
     print("=== Playoff teams ===")
-    print(playoff_sorted)
+    print(playoff_df_display.to_string(index=False))
     print("\n=== Non-playoff teams ===")
-    print(non_playoff_sorted)
+    print(non_playoff_df_display.to_string(index=False))
 
-    combined = pd.concat([playoff_sorted, non_playoff_sorted], ignore_index=True)
+    # Save full dataframes to CSV (with all columns)
+    combined = pd.concat([playoff_df, non_playoff_df], ignore_index=True)
     combined.to_csv("nfl_team_records.csv", index=False)
 
-    # Write an HTML report with both tables.
+    # Write an HTML report with display columns only
     updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    
+    # Convert seed to int for HTML
+    playoff_df_html = playoff_df[playoff_display_cols].copy()
+    playoff_df_html["seed"] = playoff_df_html["seed"].astype("Int64")
+    
+    non_playoff_df_html = non_playoff_df[non_playoff_display_cols].copy()
+    non_playoff_df_html["seed"] = non_playoff_df_html["seed"].astype("Int64")
+    
     html = """
 <!doctype html>
 <html lang=\"en\">
 <head>
     <meta charset=\"utf-8\" />
-    <title>NFL Teams & Playoff Wins</title>
+    <title>NFL Teams & Playoff Picture</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 24px; }}
         h1, h2 {{ margin-bottom: 8px; }}
@@ -157,8 +345,8 @@ if __name__ == "__main__":
 </html>
 """.format(
         updated_at=updated_at,
-    playoff_table=playoff_sorted.to_html(index=False, border=0, justify="left"),
-        non_table=non_playoff_sorted.to_html(index=False, border=0, justify="left"),
+        playoff_table=playoff_df_html.to_html(index=False, border=0, justify="left"),
+        non_table=non_playoff_df_html.to_html(index=False, border=0, justify="left"),
     )
 
     with open("nfl_team_records.html", "w", encoding="utf-8") as f:
