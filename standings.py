@@ -240,9 +240,18 @@ def build_dataset():
     
     for team in standings:
         beaten, h2h_records = all_schedules[team["id"]]
-        team["opponents_beaten"] = beaten
+        
+        # Format opponents_beaten with duplicate counts
+        from collections import Counter
+        beaten_counts = Counter(beaten)
+        opponents_beaten_formatted = [f"{opp} (x{count})" if count > 1 else opp for opp, count in beaten_counts.items()]
+        team["opponents_beaten"] = opponents_beaten_formatted
+        
+        # Get playoff opponents beaten
         playoff_beaten = [opp for opp in beaten if opp in playoff_teams]
-        team["playoff_opponents_beaten"] = playoff_beaten
+        playoff_beaten_counts = Counter(playoff_beaten)
+        playoff_opponents_beaten_formatted = [f"{opp} (x{count})" if count > 1 else opp for opp, count in playoff_beaten_counts.items()]
+        team["playoff_opponents_beaten"] = playoff_opponents_beaten_formatted
         
         # Count unique playoff teams beaten and total wins against them
         unique_playoff_beaten = len(set(playoff_beaten))
