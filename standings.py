@@ -243,7 +243,13 @@ def build_dataset():
         team["opponents_beaten"] = beaten
         playoff_beaten = [opp for opp in beaten if opp in playoff_teams]
         team["playoff_opponents_beaten"] = playoff_beaten
-        team["playoff_beaten_count"] = len(playoff_beaten)
+        
+        # Count unique playoff teams beaten and total wins against them
+        unique_playoff_beaten = len(set(playoff_beaten))
+        total_playoff_beaten = len(playoff_beaten)
+        duplicate_wins = total_playoff_beaten - unique_playoff_beaten
+        
+        team["playoff_beaten_count"] = f"{unique_playoff_beaten} ({duplicate_wins})" if duplicate_wins > 0 else str(unique_playoff_beaten)
         
         # Count unique playoff teams played against (both wins and losses)
         playoff_played = set()
@@ -302,9 +308,17 @@ if __name__ == "__main__":
     # Convert seed to int for display
     playoff_df_display = playoff_df[playoff_display_cols].copy()
     playoff_df_display["seed"] = playoff_df_display["seed"].astype("Int64")
+    playoff_df_display = playoff_df_display.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)"
+    })
     
     non_playoff_df_display = non_playoff_df[non_playoff_display_cols].copy()
     non_playoff_df_display["seed"] = non_playoff_df_display["seed"].astype("Int64")
+    non_playoff_df_display = non_playoff_df_display.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)"
+    })
     
     print("=== Playoff teams ===")
     print(playoff_df_display.to_string(index=False))
@@ -321,9 +335,17 @@ if __name__ == "__main__":
     # Convert seed to int for HTML
     playoff_df_html = playoff_df[playoff_display_cols].copy()
     playoff_df_html["seed"] = playoff_df_html["seed"].astype("Int64")
+    playoff_df_html = playoff_df_html.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)"
+    })
     
     non_playoff_df_html = non_playoff_df[non_playoff_display_cols].copy()
     non_playoff_df_html["seed"] = non_playoff_df_html["seed"].astype("Int64")
+    non_playoff_df_html = non_playoff_df_html.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)"
+    })
     
     # Build sortable HTML tables
     def build_sortable_table(df, table_id):
