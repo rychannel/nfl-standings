@@ -290,8 +290,8 @@ if __name__ == "__main__":
     non_playoff_df = non_playoff_df.sort_values(by="seed", ascending=True)
 
     # Columns to display
-    playoff_display_cols = ["team", "seed", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
-    non_playoff_display_cols = ["team", "seed", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    non_playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
     
     # Convert seed to int for display
     playoff_df_display = playoff_df[playoff_display_cols].copy()
