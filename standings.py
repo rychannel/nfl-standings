@@ -247,11 +247,13 @@ def build_dataset():
         
         # Count unique playoff teams played against (both wins and losses)
         playoff_played = set()
+        playoff_games_count = 0  # Total games against playoff teams
         
         # Add playoff teams this team beat
         for opp in beaten:
             if opp in playoff_teams:
                 playoff_played.add(opp)
+                playoff_games_count += 1
         
         # Add playoff teams that beat this team
         for other_team in standings:
@@ -259,8 +261,12 @@ def build_dataset():
                 other_beaten, _ = all_schedules[other_team["id"]]
                 if team["team"] in other_beaten:
                     playoff_played.add(other_team["team"])
+                    playoff_games_count += 1
         
-        team["playoff_teams_played"] = len(playoff_played)
+        unique_playoff_teams = len(playoff_played)
+        duplicate_games = playoff_games_count - unique_playoff_teams
+        
+        team["playoff_teams_played"] = f"{unique_playoff_teams} ({duplicate_games})" if duplicate_games > 0 else str(unique_playoff_teams)
         team["in_playoffs"] = team["team"] in playoff_teams
         
         # Add seed from ESPN for all teams
