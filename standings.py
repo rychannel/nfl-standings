@@ -289,9 +289,9 @@ if __name__ == "__main__":
     playoff_df = playoff_df.sort_values(by="seed", ascending=True)
     non_playoff_df = non_playoff_df.sort_values(by="seed", ascending=True)
 
-    # Columns to display (exclude list columns for readability)
-    playoff_display_cols = ["team", "seed", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played"]
-    non_playoff_display_cols = ["team", "seed", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played"]
+    # Columns to display
+    playoff_display_cols = ["team", "seed", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    non_playoff_display_cols = ["team", "seed", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
     
     # Convert seed to int for display
     playoff_df_display = playoff_df[playoff_display_cols].copy()
@@ -319,6 +319,26 @@ if __name__ == "__main__":
     non_playoff_df_html = non_playoff_df[non_playoff_display_cols].copy()
     non_playoff_df_html["seed"] = non_playoff_df_html["seed"].astype("Int64")
     
+    # Build sortable HTML tables
+    def build_sortable_table(df, table_id):
+        html_parts = [f'<table id="{table_id}">']
+        html_parts.append('<thead><tr>')
+        for idx, col in enumerate(df.columns):
+            html_parts.append(f'<th onclick="sortTable(\'{table_id}\', {idx})">{col}</th>')
+        html_parts.append('</tr></thead><tbody>')
+        
+        for _, row in df.iterrows():
+            html_parts.append('<tr>')
+            for val in row:
+                html_parts.append(f'<td>{val}</td>')
+            html_parts.append('</tr>')
+        
+        html_parts.append('</tbody></table>')
+        return ''.join(html_parts)
+    
+    playoff_table_html = build_sortable_table(playoff_df_html, "playoff-table")
+    non_playoff_table_html = build_sortable_table(non_playoff_df_html, "non-playoff-table")
+    
     html = """
 <!doctype html>
 <html lang=\"en\">
@@ -330,9 +350,57 @@ if __name__ == "__main__":
         h1, h2 {{ margin-bottom: 8px; }}
         table {{ border-collapse: collapse; width: 100%; margin-bottom: 32px; }}
         th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
-        th {{ background: #f2f2f2; font-weight: bold; }}
+        th {{ background: #f2f2f2; font-weight: bold; cursor: pointer; user-select: none; }}
+        th:hover {{ background: #e0e0e0; }}
+        th.sort-asc::after {{ content: ' ▲'; }}
+        th.sort-desc::after {{ content: ' ▼'; }}
         .updated {{ color: #555; margin: 0 0 16px 0; font-size: 0.9rem; }}
     </style>
+    <script>
+        function sortTable(tableId, columnIndex) {{
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const headers = table.querySelectorAll('th');
+            const currentHeader = headers[columnIndex];
+            
+            // Determine sort direction
+            let sortDir = 'asc';
+            if (currentHeader.classList.contains('sort-asc')) {{
+                sortDir = 'desc';
+            }}
+            
+            // Remove all sort classes
+            headers.forEach(h => {{
+                h.classList.remove('sort-asc', 'sort-desc');
+            }});
+            
+            // Add sort class to current header
+            currentHeader.classList.add('sort-' + sortDir);
+            
+            // Sort rows
+            rows.sort((a, b) => {{
+                const aCell = a.cells[columnIndex].textContent.trim();
+                const bCell = b.cells[columnIndex].textContent.trim();
+                
+                // Try to parse as number
+                const aNum = parseFloat(aCell);
+                const bNum = parseFloat(bCell);
+                
+                let comparison = 0;
+                if (!isNaN(aNum) && !isNaN(bNum)) {{
+                    comparison = aNum - bNum;
+                }} else {{
+                    comparison = aCell.localeCompare(bCell);
+                }}
+                
+                return sortDir === 'asc' ? comparison : -comparison;
+            }});
+            
+            // Reorder rows
+            rows.forEach(row => tbody.appendChild(row));
+        }}
+    </script>
 </head>
 <body>
     <h1>NFL Teams & Playoff Picture</h1>
@@ -345,8 +413,8 @@ if __name__ == "__main__":
 </html>
 """.format(
         updated_at=updated_at,
-        playoff_table=playoff_df_html.to_html(index=False, border=0, justify="left"),
-        non_table=non_playoff_df_html.to_html(index=False, border=0, justify="left"),
+        playoff_table=playoff_table_html,
+        non_table=non_playoff_table_html,
     )
 
     with open("nfl_team_records.html", "w", encoding="utf-8") as f:
