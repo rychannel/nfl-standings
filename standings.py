@@ -536,6 +536,31 @@ if __name__ == "__main__":
             if os.path.exists(dst_html):
                 os.remove(dst_html)
             shutil.move(src_html, dst_html)
+            # Move JSON outputs as well
+            try:
+                src_json = os.path.abspath("nfl_team_records.json")
+                dst_json = os.path.join(output_dir, "nfl_team_records.json")
+                if os.path.exists(src_json):
+                    if os.path.exists(dst_json):
+                        os.remove(dst_json)
+                    shutil.move(src_json, dst_json)
+
+                src_pf = os.path.abspath("playoff_team_records.json")
+                dst_pf = os.path.join(output_dir, "playoff_team_records.json")
+                if os.path.exists(src_pf):
+                    if os.path.exists(dst_pf):
+                        os.remove(dst_pf)
+                    shutil.move(src_pf, dst_pf)
+
+                src_nf = os.path.abspath("non_playoff_team_records.json")
+                dst_nf = os.path.join(output_dir, "non_playoff_team_records.json")
+                if os.path.exists(src_nf):
+                    if os.path.exists(dst_nf):
+                        os.remove(dst_nf)
+                    shutil.move(src_nf, dst_nf)
+            except Exception:
+                # Ignore individual JSON move errors but continue
+                pass
             print(f"Reports moved to: {output_dir}")
         except Exception as e:
             print(f"Warning: failed to move files to OUTPUT_DIR: {e}")

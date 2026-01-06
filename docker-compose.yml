@@ -8,4 +8,6 @@ services:
       - ./output:/app/output
     environment:
       - PYTHONUNBUFFERED=1
+      - DOCKER=true
+      - OUTPUT_DIR=/app/output
     restart: on-failure
