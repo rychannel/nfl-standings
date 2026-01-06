@@ -22,7 +22,10 @@ jobs:
         script: |
           cd ${{ secrets.VPS_PROJECT_PATH || '/home/$USER/nfl-standings' }}
           git pull origin main
+          echo "Deploying commit: $(git rev-parse --short HEAD)"
           echo "Code deployed, now building containers..."
           cd /opt/docker
-          docker compose up -d --build
+          # Force a fresh build and recreate containers to ensure the new image is used
+          docker compose build --no-cache
+          docker compose up -d --force-recreate --remove-orphans
           echo "Deployment completed at $(date)"
