@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import time
 import os
 import shutil
+import json
 
 
 STANDINGS_URL = "https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings"
@@ -231,6 +232,9 @@ def build_dataset():
     for team in standings:
         result = get_team_results(team["id"])
         all_schedules[team["id"]] = result
+
+    # Map team name -> win_pct for computing wins against teams with winning records
+    win_pct_map = {t["team"]: t["win_pct"] for t in standings}
     
     # Use ESPN's official playoff seed for all teams
     # Identify playoff teams as those with seed 1-7 (actual playoff teams)
@@ -286,6 +290,41 @@ def build_dataset():
         
         # Add seed from ESPN for all teams
         team["seed"] = team["espn_playoff_seed"]
+
+        # Wins against teams with a winning record (> .500)
+        total_wins_vs_winning = sum(1 for opp in beaten if win_pct_map.get(opp, 0) > 0.5)
+        beaten_winning = [opp for opp, count in beaten_counts.items() if win_pct_map.get(opp, 0) > 0.5]
+        beaten_winning_formatted = [f"{opp} (x{beaten_counts[opp]})" if beaten_counts[opp] > 1 else opp for opp in beaten_winning]
+        # Show unique wins with duplicate count in parentheses (e.g., "3 (1)")
+        unique_wins_vs_winning = len(beaten_winning)
+        duplicate_wins_vs_winning = total_wins_vs_winning - unique_wins_vs_winning
+        team["wins_vs_winning"] = f"{unique_wins_vs_winning} ({duplicate_wins_vs_winning})" if duplicate_wins_vs_winning > 0 else str(unique_wins_vs_winning)
+        team["opponents_beaten_vs_winning"] = beaten_winning_formatted
+
+        # Winning teams played (unique count, with duplicate games in parentheses)
+        winning_played = set()
+        winning_games_count = 0
+
+        # Teams this team beat that have winning records
+        for opp in beaten:
+            if win_pct_map.get(opp, 0) > 0.5:
+                winning_played.add(opp)
+                winning_games_count += 1
+
+        # Teams that beat this team and have winning records
+        for other_team in standings:
+            other_name = other_team["team"]
+            other_win_pct = other_team.get("win_pct", 0)
+            if other_win_pct <= 0.5:
+                continue
+            other_beaten, _ = all_schedules[other_team["id"]]
+            if team["team"] in other_beaten:
+                winning_played.add(other_name)
+                winning_games_count += 1
+
+        unique_winning_teams = len(winning_played)
+        duplicate_winning = winning_games_count - unique_winning_teams
+        team["winning_teams_played"] = f"{unique_winning_teams} ({duplicate_winning})" if duplicate_winning > 0 else str(unique_winning_teams)
         
         dataset.append(team)
 
@@ -311,22 +350,26 @@ if __name__ == "__main__":
     non_playoff_df = non_playoff_df.sort_values(by="seed", ascending=True)
 
     # Columns to display
-    playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
-    non_playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    non_playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
     
     # Convert seed to int for display
     playoff_df_display = playoff_df[playoff_display_cols].copy()
     playoff_df_display["seed"] = playoff_df_display["seed"].astype("Int64")
     playoff_df_display = playoff_df_display.rename(columns={
         "playoff_beaten_count": "playoff_beaten (dups)",
-        "playoff_teams_played": "playoff_teams_played (dups)"
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
     })
     
     non_playoff_df_display = non_playoff_df[non_playoff_display_cols].copy()
     non_playoff_df_display["seed"] = non_playoff_df_display["seed"].astype("Int64")
     non_playoff_df_display = non_playoff_df_display.rename(columns={
         "playoff_beaten_count": "playoff_beaten (dups)",
-        "playoff_teams_played": "playoff_teams_played (dups)"
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
     })
     
     print("=== Playoff teams ===")
@@ -337,6 +380,19 @@ if __name__ == "__main__":
     # Save full dataframes to CSV (with all columns)
     combined = pd.concat([playoff_df, non_playoff_df], ignore_index=True)
     combined.to_csv("nfl_team_records.csv", index=False)
+    # Also write JSON output for consumption by external programs (COBOL, etc.)
+    # Use Python-native types and ensure nulls are written as null
+    combined_records = combined.where(pd.notnull(combined), None).to_dict(orient="records")
+    with open("nfl_team_records.json", "w", encoding="utf-8") as jf:
+        json.dump(combined_records, jf, ensure_ascii=False, indent=2)
+
+    # Write separate JSON files for playoff and non-playoff sections (display columns)
+    playoff_records = playoff_df[playoff_display_cols].where(pd.notnull(playoff_df[playoff_display_cols]), None).to_dict(orient="records")
+    non_playoff_records = non_playoff_df[non_playoff_display_cols].where(pd.notnull(non_playoff_df[non_playoff_display_cols]), None).to_dict(orient="records")
+    with open("playoff_team_records.json", "w", encoding="utf-8") as pf:
+        json.dump(playoff_records, pf, ensure_ascii=False, indent=2)
+    with open("non_playoff_team_records.json", "w", encoding="utf-8") as nf:
+        json.dump(non_playoff_records, nf, ensure_ascii=False, indent=2)
 
     # Write an HTML report with display columns only
     updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -346,14 +402,18 @@ if __name__ == "__main__":
     playoff_df_html["seed"] = playoff_df_html["seed"].astype("Int64")
     playoff_df_html = playoff_df_html.rename(columns={
         "playoff_beaten_count": "playoff_beaten (dups)",
-        "playoff_teams_played": "playoff_teams_played (dups)"
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
     })
     
     non_playoff_df_html = non_playoff_df[non_playoff_display_cols].copy()
     non_playoff_df_html["seed"] = non_playoff_df_html["seed"].astype("Int64")
     non_playoff_df_html = non_playoff_df_html.rename(columns={
         "playoff_beaten_count": "playoff_beaten (dups)",
-        "playoff_teams_played": "playoff_teams_played (dups)"
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
     })
     
     # Build sortable HTML tables
