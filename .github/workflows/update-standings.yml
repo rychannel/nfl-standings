@@ -21,7 +21,11 @@ jobs:
         port: ${{ secrets.VPS_PORT || 22 }}
         script: |
           cd ${{ secrets.VPS_PROJECT_PATH || '/home/$USER/nfl-standings' }}
-          git pull origin main
+            echo "Fetching latest from origin/main..."
+            git fetch origin main || true
+            echo "Resetting local repo to origin/main (discarding local changes)..."
+            git reset --hard origin/main
+            git clean -fd
           echo "Code deployed, now building containers..."
           cd /opt/docker
           docker compose up -d --build
