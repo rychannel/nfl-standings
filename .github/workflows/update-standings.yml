@@ -25,6 +25,14 @@ jobs:
           echo "Deploying commit: $(git rev-parse --short HEAD)"
           echo "Code deployed, now building containers (from project path)..."
           # Run compose in the project directory so the build context includes the repo Dockerfile and sources
-          docker compose build --no-cache
+          docker compose build --no-cache --build-arg BUILD_GIT_SHA=$(git rev-parse --short HEAD)
           docker compose up -d --force-recreate --remove-orphans
+          
+          echo "Verifying container has updated standings.py..."
+          # Print first lines and check for a known marker from the updated code
+          docker compose exec nfl-standings head -n 40 /app/standings.py || { echo "standings.py missing"; exit 1; }
+          docker compose exec nfl-standings grep -n "wins_vs_winning" /app/standings.py || { echo "standings.py not updated (missing wins_vs_winning)"; exit 1; }
+          
+          echo "Listing output directory inside container..."
+          docker compose exec nfl-standings ls -la /app/output || true
           echo "Deployment completed at $(date)"
