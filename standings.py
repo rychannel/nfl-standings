@@ -379,19 +379,27 @@ if __name__ == "__main__":
 
     # Save full dataframes to CSV (with all columns)
     combined = pd.concat([playoff_df, non_playoff_df], ignore_index=True)
-    combined.to_csv("nfl_team_records.csv", index=False)
+    # Determine write directory (use OUTPUT_DIR when running in Docker)
+    is_docker = os.environ.get("DOCKER", "").lower() in ("true", "1", "yes")
+    output_dir = os.environ.get("OUTPUT_DIR")
+    write_dir = output_dir if (is_docker and output_dir) else os.path.abspath(".")
+    os.makedirs(write_dir, exist_ok=True)
+
+    # Save CSV to write_dir
+    combined_path = os.path.join(write_dir, "nfl_team_records.csv")
+    combined.to_csv(combined_path, index=False)
+
     # Also write JSON output for consumption by external programs (COBOL, etc.)
-    # Use Python-native types and ensure nulls are written as null
     combined_records = combined.where(pd.notnull(combined), None).to_dict(orient="records")
-    with open("nfl_team_records.json", "w", encoding="utf-8") as jf:
+    with open(os.path.join(write_dir, "nfl_team_records.json"), "w", encoding="utf-8") as jf:
         json.dump(combined_records, jf, ensure_ascii=False, indent=2)
 
     # Write separate JSON files for playoff and non-playoff sections (display columns)
     playoff_records = playoff_df[playoff_display_cols].where(pd.notnull(playoff_df[playoff_display_cols]), None).to_dict(orient="records")
     non_playoff_records = non_playoff_df[non_playoff_display_cols].where(pd.notnull(non_playoff_df[non_playoff_display_cols]), None).to_dict(orient="records")
-    with open("playoff_team_records.json", "w", encoding="utf-8") as pf:
+    with open(os.path.join(write_dir, "playoff_team_records.json"), "w", encoding="utf-8") as pf:
         json.dump(playoff_records, pf, ensure_ascii=False, indent=2)
-    with open("non_playoff_team_records.json", "w", encoding="utf-8") as nf:
+    with open(os.path.join(write_dir, "non_playoff_team_records.json"), "w", encoding="utf-8") as nf:
         json.dump(non_playoff_records, nf, ensure_ascii=False, indent=2)
 
     # Write an HTML report with display columns only
@@ -527,15 +535,17 @@ if __name__ == "__main__":
             # Move CSV
             src_csv = os.path.abspath("nfl_team_records.csv")
             dst_csv = os.path.join(output_dir, "nfl_team_records.csv")
-            if os.path.exists(dst_csv):
-                os.remove(dst_csv)
-            shutil.move(src_csv, dst_csv)
+            if os.path.exists(src_csv):
+                if os.path.exists(dst_csv):
+                    os.remove(dst_csv)
+                shutil.move(src_csv, dst_csv)
             # Move HTML
             src_html = os.path.abspath("nfl_team_records.html")
             dst_html = os.path.join(output_dir, "nfl_team_records.html")
-            if os.path.exists(dst_html):
-                os.remove(dst_html)
-            shutil.move(src_html, dst_html)
+            if os.path.exists(src_html):
+                if os.path.exists(dst_html):
+                    os.remove(dst_html)
+                shutil.move(src_html, dst_html)
             # Move JSON outputs as well
             try:
                 src_json = os.path.abspath("nfl_team_records.json")
