@@ -467,6 +467,9 @@ if __name__ == "__main__":
     <style>
         body {{ font-family: Arial, sans-serif; margin: 24px; }}
         h1, h2 {{ margin-bottom: 8px; }}
+        .nav {{ margin-bottom: 16px; }}
+        .nav a {{ margin-right: 16px; padding: 8px 12px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }}
+        .nav a:hover {{ background: #0056b3; }}
         table {{ border-collapse: collapse; width: 100%; margin-bottom: 32px; }}
         th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
         th {{ background: #f2f2f2; font-weight: bold; cursor: pointer; user-select: none; }}
@@ -523,6 +526,9 @@ if __name__ == "__main__":
 </head>
 <body>
     <h1>NFL Teams & Playoff Picture</h1>
+    <div class=\"nav\">
+        <a href=\"nfl_all_teams.html\">View All Teams by Quality Score</a>
+    </div>
     <p class=\"updated\">Last updated: {updated_at}</p>
     <h2>Playoff Teams</h2>
     {playoff_table}
@@ -561,6 +567,9 @@ if __name__ == "__main__":
     <style>
         body {{ font-family: Arial, sans-serif; margin: 24px; }}
         h1 {{ margin-bottom: 8px; }}
+        .nav {{ margin-bottom: 16px; }}
+        .nav a {{ margin-right: 16px; padding: 8px 12px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }}
+        .nav a:hover {{ background: #0056b3; }}
         table {{ border-collapse: collapse; width: 100%; margin-bottom: 32px; }}
         th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
         th {{ background: #f2f2f2; font-weight: bold; cursor: pointer; user-select: none; }}
@@ -618,6 +627,9 @@ if __name__ == "__main__":
 </head>
 <body>
     <h1>NFL Teams - All Teams Ranked by Quality Score</h1>
+    <div class=\"nav\">
+        <a href=\"nfl_team_records.html\">View Playoff/Non-Playoff Split</a>
+    </div>
     <p class=\"updated\">Last updated: {updated_at}</p>
     <p class=\"info\">Quality Score = (Win % × 40) + (SOS × 20) + (Wins vs Winning × 2.5) + (Playoff Wins × 4)</p>
     {all_teams_table}
