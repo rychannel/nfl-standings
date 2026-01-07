@@ -287,7 +287,7 @@ def build_dataset():
         # Add playoff teams that beat this team
         for other_team in standings:
             if other_team["team"] in playoff_teams:
-                other_beaten, _ = all_schedules[other_team["id"]]
+                other_beaten, _, _ = all_schedules[other_team["id"]]
                 if team["team"] in other_beaten:
                     playoff_played.add(other_team["team"])
                     playoff_games_count += 1
@@ -327,7 +327,7 @@ def build_dataset():
             other_win_pct = other_team.get("win_pct", 0)
             if other_win_pct <= 0.5:
                 continue
-            other_beaten, _ = all_schedules[other_team["id"]]
+            other_beaten, _, _ = all_schedules[other_team["id"]]
             if team["team"] in other_beaten:
                 winning_played.add(other_name)
                 winning_games_count += 1
