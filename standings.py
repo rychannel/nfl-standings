@@ -336,6 +336,10 @@ def build_dataset():
         duplicate_winning = winning_games_count - unique_winning_teams
         team["winning_teams_played"] = f"{unique_winning_teams} ({duplicate_winning})" if duplicate_winning > 0 else str(unique_winning_teams)
         
+        # Calculate quality score: (Win_Pct × 40) + (SOS × 20) + (Wins_vs_Winning × 2.5) + (Playoff_Wins × 4)
+        quality_score = (team["win_pct"] * 40) + (team["sos"] * 20) + (total_wins_vs_winning * 2.5) + (total_playoff_beaten * 4)
+        team["quality_score"] = round(quality_score, 2)
+        
         dataset.append(team)
 
     return pd.DataFrame(dataset)
@@ -360,8 +364,8 @@ if __name__ == "__main__":
     non_playoff_df = non_playoff_df.sort_values(by="seed", ascending=True)
 
     # Columns to display
-    playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "sos", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
-    non_playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "sos", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "sos", "quality_score", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    non_playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "sos", "quality_score", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
     
     # Convert seed to int for display
     playoff_df_display = playoff_df[playoff_display_cols].copy()
@@ -535,6 +539,98 @@ if __name__ == "__main__":
     with open("nfl_team_records.html", "w", encoding="utf-8") as f:
         f.write(html)
 
+    # Generate a separate HTML file with all teams combined (sorted by quality score)
+    all_teams_df = combined[playoff_display_cols].copy()
+    all_teams_df = all_teams_df.sort_values(by="quality_score", ascending=False)
+    all_teams_df["seed"] = all_teams_df["seed"].astype("Int64")
+    all_teams_df = all_teams_df.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
+    })
+    
+    all_teams_table_html = build_sortable_table(all_teams_df, "all-teams-table")
+    
+    all_teams_html = """
+<!doctype html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\" />
+    <title>NFL Teams - All Teams by Quality Score</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 24px; }}
+        h1 {{ margin-bottom: 8px; }}
+        table {{ border-collapse: collapse; width: 100%; margin-bottom: 32px; }}
+        th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
+        th {{ background: #f2f2f2; font-weight: bold; cursor: pointer; user-select: none; }}
+        th:hover {{ background: #e0e0e0; }}
+        th.sort-asc::after {{ content: ' ▲'; }}
+        th.sort-desc::after {{ content: ' ▼'; }}
+        .updated {{ color: #555; margin: 0 0 16px 0; font-size: 0.9rem; }}
+        .info {{ color: #666; margin: 0 0 16px 0; font-size: 0.9rem; font-style: italic; }}
+    </style>
+    <script>
+        function sortTable(tableId, columnIndex) {{
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const headers = table.querySelectorAll('th');
+            const currentHeader = headers[columnIndex];
+            
+            // Determine sort direction
+            let sortDir = 'asc';
+            if (currentHeader.classList.contains('sort-asc')) {{
+                sortDir = 'desc';
+            }}
+            
+            // Remove all sort classes
+            headers.forEach(h => {{
+                h.classList.remove('sort-asc', 'sort-desc');
+            }});
+            
+            // Add sort class to current header
+            currentHeader.classList.add('sort-' + sortDir);
+            
+            // Sort rows
+            rows.sort((a, b) => {{
+                const aCell = a.cells[columnIndex].textContent.trim();
+                const bCell = b.cells[columnIndex].textContent.trim();
+                
+                // Try to parse as number
+                const aNum = parseFloat(aCell);
+                const bNum = parseFloat(bCell);
+                
+                let comparison = 0;
+                if (!isNaN(aNum) && !isNaN(bNum)) {{
+                    comparison = aNum - bNum;
+                }} else {{
+                    comparison = aCell.localeCompare(bCell);
+                }}
+                
+                return sortDir === 'asc' ? comparison : -comparison;
+            }});
+            
+            // Reorder rows
+            rows.forEach(row => tbody.appendChild(row));
+        }}
+    </script>
+</head>
+<body>
+    <h1>NFL Teams - All Teams Ranked by Quality Score</h1>
+    <p class=\"updated\">Last updated: {updated_at}</p>
+    <p class=\"info\">Quality Score = (Win % × 40) + (SOS × 20) + (Wins vs Winning × 2.5) + (Playoff Wins × 4)</p>
+    {all_teams_table}
+</body>
+</html>
+""".format(
+        updated_at=updated_at,
+        all_teams_table=all_teams_table_html,
+    )
+
+    with open("nfl_all_teams.html", "w", encoding="utf-8") as f:
+        f.write(all_teams_html)
+
     # Move CSV and HTML to OUTPUT_DIR only if DOCKER environment is set
     is_docker = os.environ.get("DOCKER", "").lower() in ("true", "1", "yes")
     output_dir = os.environ.get("OUTPUT_DIR")
@@ -556,6 +652,13 @@ if __name__ == "__main__":
                 if os.path.exists(dst_html):
                     os.remove(dst_html)
                 shutil.move(src_html, dst_html)
+            # Move all-teams HTML
+            src_all = os.path.abspath("nfl_all_teams.html")
+            dst_all = os.path.join(output_dir, "nfl_all_teams.html")
+            if os.path.exists(src_all):
+                if os.path.exists(dst_all):
+                    os.remove(dst_all)
+                shutil.move(src_all, dst_all)
             # Move JSON outputs as well
             try:
                 src_json = os.path.abspath("nfl_team_records.json")
@@ -585,7 +688,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Warning: failed to move files to OUTPUT_DIR: {e}")
     else:
-        print("Reports generated locally: nfl_team_records.csv, nfl_team_records.html")
+        print("Reports generated locally: nfl_team_records.csv, nfl_team_records.html, nfl_all_teams.html")
     
     # Sleep for 8 hours before ending the script, comment this line out if you want to run the script on demand
     if is_docker:
