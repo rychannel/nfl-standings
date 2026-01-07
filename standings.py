@@ -566,7 +566,6 @@ if __name__ == "__main__":
     # Generate a separate HTML file with all teams combined (sorted by quality score)
     all_teams_df = combined[playoff_display_cols].copy()
     all_teams_df = all_teams_df.sort_values(by="quality_score", ascending=False).reset_index(drop=True)
-    all_teams_df.insert(0, "rank", range(1, len(all_teams_df) + 1))
     all_teams_df["seed"] = all_teams_df["seed"].astype("Int64")
     all_teams_df = all_teams_df.rename(columns={
         "playoff_beaten_count": "playoff_beaten (dups)",
@@ -648,7 +647,7 @@ if __name__ == "__main__":
     </script>
 </head>
 <body>
-    <h1>NFL Teams - All Teams Ranked by Quality Score</h1>
+    <h1>NFL Teams - All Teams with Quality Score</h1>
     <div class=\"nav\">
         <a href=\"nfl_team_records.html\">View Playoff/Non-Playoff Split</a>
     </div>
