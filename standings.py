@@ -470,6 +470,10 @@ if __name__ == "__main__":
         .nav {{ margin-bottom: 16px; }}
         .nav a {{ margin-right: 16px; padding: 8px 12px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }}
         .nav a:hover {{ background: #0056b3; }}
+        .explanation {{ background: #e8f4f8; padding: 12px 16px; border-left: 4px solid #007bff; margin-bottom: 20px; border-radius: 4px; }}
+        .explanation h3 {{ margin-top: 0; color: #007bff; }}
+        .explanation p {{ margin: 6px 0; font-size: 0.9rem; }}
+        .explanation ul {{ margin: 6px 0; padding-left: 20px; font-size: 0.9rem; }}
         table {{ border-collapse: collapse; width: 100%; margin-bottom: 32px; }}
         th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
         th {{ background: #f2f2f2; font-weight: bold; cursor: pointer; user-select: none; }}
@@ -530,6 +534,20 @@ if __name__ == "__main__":
         <a href=\"nfl_all_teams.html\">View All Teams by Quality Score</a>
     </div>
     <p class=\"updated\">Last updated: {updated_at}</p>
+    
+    <div class=\"explanation\">
+        <h3>About Quality Score</h3>
+        <p><strong>Quality Score</strong> is a composite metric that ranks teams based on four key performance factors:</p>
+        <ul>
+            <li><strong>Win % (40% weight):</strong> Overall winning percentage—the foundation of team success</li>
+            <li><strong>Strength of Schedule (20% weight):</strong> Average win percentage of all opponents faced—rewards teams who played tougher competition</li>
+            <li><strong>Wins vs Winning Teams (2.5 pts each):</strong> Quality wins against teams with winning records (>50% win %)</li>
+            <li><strong>Playoff Wins (4 pts each):</strong> Victories against current playoff-contending teams—most prestigious wins</li>
+        </ul>
+        <p><strong>Formula:</strong> (Win % × 40) + (SOS × 20) + (Wins vs Winning × 2.5) + (Playoff Wins × 4)</p>
+        <p>Higher scores indicate stronger overall team quality considering both results and strength of opposition.</p>
+    </div>
+    
     <h2>Playoff Teams</h2>
     {playoff_table}
     <h2>Non-Playoff Teams</h2>
@@ -571,6 +589,10 @@ if __name__ == "__main__":
         .nav {{ margin-bottom: 16px; }}
         .nav a {{ margin-right: 16px; padding: 8px 12px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }}
         .nav a:hover {{ background: #0056b3; }}
+        .explanation {{ background: #e8f4f8; padding: 12px 16px; border-left: 4px solid #007bff; margin-bottom: 20px; border-radius: 4px; }}
+        .explanation h3 {{ margin-top: 0; color: #007bff; }}
+        .explanation p {{ margin: 6px 0; font-size: 0.9rem; }}
+        .explanation ul {{ margin: 6px 0; padding-left: 20px; font-size: 0.9rem; }}
         table {{ border-collapse: collapse; width: 100%; margin-bottom: 32px; }}
         th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
         th {{ background: #f2f2f2; font-weight: bold; cursor: pointer; user-select: none; }}
@@ -578,7 +600,6 @@ if __name__ == "__main__":
         th.sort-asc::after {{ content: ' ▲'; }}
         th.sort-desc::after {{ content: ' ▼'; }}
         .updated {{ color: #555; margin: 0 0 16px 0; font-size: 0.9rem; }}
-        .info {{ color: #666; margin: 0 0 16px 0; font-size: 0.9rem; font-style: italic; }}
     </style>
     <script>
         function sortTable(tableId, columnIndex) {{
@@ -632,7 +653,20 @@ if __name__ == "__main__":
         <a href=\"nfl_team_records.html\">View Playoff/Non-Playoff Split</a>
     </div>
     <p class=\"updated\">Last updated: {updated_at}</p>
-    <p class=\"info\">Quality Score = (Win % × 40) + (SOS × 20) + (Wins vs Winning × 2.5) + (Playoff Wins × 4)</p>
+    
+    <div class=\"explanation\">
+        <h3>About Quality Score</h3>
+        <p><strong>Quality Score</strong> is a composite metric that ranks teams based on four key performance factors:</p>
+        <ul>
+            <li><strong>Win % (40% weight):</strong> Overall winning percentage—the foundation of team success</li>
+            <li><strong>Strength of Schedule (20% weight):</strong> Average win percentage of all opponents faced—rewards teams who played tougher competition</li>
+            <li><strong>Wins vs Winning Teams (2.5 pts each):</strong> Quality wins against teams with winning records (>50% win %)</li>
+            <li><strong>Playoff Wins (4 pts each):</strong> Victories against current playoff-contending teams—most prestigious wins</li>
+        </ul>
+        <p><strong>Formula:</strong> (Win % × 40) + (SOS × 20) + (Wins vs Winning × 2.5) + (Playoff Wins × 4)</p>
+        <p>Higher scores indicate stronger overall team quality considering both results and strength of opposition.</p>
+    </div>
+    
     {all_teams_table}
 </body>
 </html>
