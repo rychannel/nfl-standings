@@ -547,7 +547,8 @@ if __name__ == "__main__":
 
     # Generate a separate HTML file with all teams combined (sorted by quality score)
     all_teams_df = combined[playoff_display_cols].copy()
-    all_teams_df = all_teams_df.sort_values(by="quality_score", ascending=False)
+    all_teams_df = all_teams_df.sort_values(by="quality_score", ascending=False).reset_index(drop=True)
+    all_teams_df.insert(0, "rank", range(1, len(all_teams_df) + 1))
     all_teams_df["seed"] = all_teams_df["seed"].astype("Int64")
     all_teams_df = all_teams_df.rename(columns={
         "playoff_beaten_count": "playoff_beaten (dups)",
