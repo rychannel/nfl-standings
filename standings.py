@@ -37,6 +37,24 @@ def _stat(entry: dict, name: str):
     return None
 
 
+def get_season_year() -> int | None:
+    """Fetch current standings payload and extract the active season year.
+    Returns None if not available.
+    """
+    try:
+        data = _fetch_json(STANDINGS_URL)
+        # Common ESPN schema has season.year
+        season = data.get("season") or {}
+        year = season.get("year")
+        if year is not None:
+            return int(year)
+        # Fallbacks sometimes seen
+        year = data.get("seasonYear")
+        return int(year) if year is not None else None
+    except Exception:
+        return None
+
+
 def get_standings():
     data = _fetch_json(STANDINGS_URL)
     teams = []
@@ -81,8 +99,13 @@ def get_standings():
     return teams
 
 
-def get_team_results(team_id: str):
-    url = SCHEDULE_URL.format(team_id=team_id)
+def get_team_results(team_id: str, season_year: int | None = None):
+    base = SCHEDULE_URL.format(team_id=team_id)
+    # Constrain to regular season (seasontype=2) and explicit season year if known
+    if season_year:
+        url = f"{base}?season={season_year}&seasontype=2"
+    else:
+        url = f"{base}?seasontype=2"
     try:
         data = _fetch_json(url)
     except requests.HTTPError:
@@ -232,8 +255,13 @@ def build_dataset():
 
     # Pre-fetch all schedule data
     all_schedules = {}
+    # Determine season year to ensure schedules align with standings (e.g., Jan 2026 -> season 2025)
+    season_year = get_season_year()
+    if not season_year:
+        print("Warning: Could not determine season year from standings; falling back to API defaults for schedules.")
+
     for team in standings:
-        result = get_team_results(team["id"])
+        result = get_team_results(team["id"], season_year)
         all_schedules[team["id"]] = result
 
     # Map team name -> win_pct for computing wins against teams with winning records
@@ -347,7 +375,28 @@ def build_dataset():
 if __name__ == "__main__":
     import sys
     
-    df = build_dataset()
+    # Build dataset with a hard gate: if API fails or data incomplete, do NOT write files
+    try:
+        df = build_dataset()
+    except Exception as e:
+        print(f"Error: failed to fetch or build dataset from API. Skipping all file updates. Details: {e}")
+        sys.exit(1)
+    
+    # Validate dataset completeness (avoid overwriting outputs with partial data)
+    try:
+        conditions = [
+            isinstance(df, pd.DataFrame),
+            not df.empty,
+            len(df.index) == 32,  # Expect exactly 32 NFL teams
+            'team' in df.columns and not df['team'].isnull().any(),
+            'win_pct' in df.columns and not df['win_pct'].isnull().any(),
+        ]
+        if not all(conditions):
+            print("Warning: dataset appears incomplete or invalid (e.g., missing teams or stats). Skipping all file updates.")
+            sys.exit(2)
+    except Exception as e:
+        print(f"Warning: dataset validation failed. Skipping all file updates. Details: {e}")
+        sys.exit(2)
     
     # Filter to only playoff teams (seeds 1-7 per conference based on ESPN data)
     # ESPN playoff seed tells us if they're in the playoffs
