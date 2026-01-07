@@ -86,9 +86,10 @@ def get_team_results(team_id: str):
     try:
         data = _fetch_json(url)
     except requests.HTTPError:
-        return []
+        return [], {}, []
     opponents_beaten = []
     h2h_records = {}  # opponent_name -> {"wins": int, "losses": int}
+    all_opponents = []  # All opponents played (for strength of schedule)
 
     for event in data.get("events", []):
         comp = event.get("competitions", [{}])[0]
@@ -97,12 +98,14 @@ def get_team_results(team_id: str):
         opp = next((c for c in competitors if c.get("id") != str(team_id)), None)
         if not me or not opp:
             continue
+        
+        opp_name = opp.get("displayName") or opp.get("team", {}).get("displayName")
+        all_opponents.append(opp_name)
+        
         if me.get("winner"):
-            opp_name = opp.get("displayName") or opp.get("team", {}).get("displayName")
             opponents_beaten.append(opp_name)
         
         # Track head-to-head records against all opponents
-        opp_name = opp.get("displayName") or opp.get("team", {}).get("displayName")
         if opp_name not in h2h_records:
             h2h_records[opp_name] = {"wins": 0, "losses": 0}
         if me.get("winner"):
@@ -110,7 +113,7 @@ def get_team_results(team_id: str):
         else:
             h2h_records[opp_name]["losses"] += 1
 
-    return opponents_beaten, h2h_records
+    return opponents_beaten, h2h_records, all_opponents
 
 
 def compute_tiebreaker_key(team: dict, tied_teams: list, all_schedules: dict) -> tuple:
@@ -243,7 +246,14 @@ def build_dataset():
     dataset = []
     
     for team in standings:
-        beaten, h2h_records = all_schedules[team["id"]]
+        beaten, h2h_records, all_opponents = all_schedules[team["id"]]
+        
+        # Calculate strength of schedule (average win percentage of all opponents)
+        if all_opponents:
+            sos = sum(win_pct_map.get(opp, 0) for opp in all_opponents) / len(all_opponents)
+        else:
+            sos = 0.0
+        team["sos"] = round(sos, 3)
         
         # Format opponents_beaten with duplicate counts
         from collections import Counter
@@ -350,8 +360,8 @@ if __name__ == "__main__":
     non_playoff_df = non_playoff_df.sort_values(by="seed", ascending=True)
 
     # Columns to display
-    playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
-    non_playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "sos", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    non_playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "sos", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
     
     # Convert seed to int for display
     playoff_df_display = playoff_df[playoff_display_cols].copy()
