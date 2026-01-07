@@ -784,8 +784,3 @@ if __name__ == "__main__":
             print(f"Warning: failed to move files to OUTPUT_DIR: {e}")
     else:
         print("Reports generated locally: nfl_team_records.csv, nfl_team_records.html, nfl_all_teams.html")
-    
-    # Sleep for 8 hours before ending the script, comment this line out if you want to run the script on demand
-    if is_docker:
-        print("Sleeping for 8 hours...")
-        time.sleep(8*60*60)
