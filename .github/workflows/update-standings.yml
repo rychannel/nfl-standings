@@ -2,30 +2,14 @@ name: Deploy NFL Standings
 
 on:
   workflow_dispatch:  # Allow manual trigger
-  schedule:
-    # Run after typical NFL game slots (times in UTC, all post-game)
-    # Thursday Night Football: 5:00 AM UTC Fri (12am ET Fri, ~1hr after TNF ends)
-    - cron: '0 5 * * 5'
-    # Saturday games (mid-late season): 10:30 PM UTC Sat (5:30pm ET Sat, after afternoon/early-evening games)
-    - cron: '30 22 * * 6'
-    # Saturday night game: 6:00 AM UTC Sun (1am ET Sun, after Sat night game ends)
-    - cron: '0 6 * * 0'
-    # Sunday early/afternoon games: 9:25 PM UTC Sun (4:25pm ET Sun, after 1pm/4pm games)
-    - cron: '25 21 * * 0'
-    # Sunday late afternoon: 1:00 AM UTC Mon (8pm ET Sun, after late afternoon games)
-    - cron: '0 1 * * 1'
-    # Sunday Night Football: 5:00 AM UTC Mon (12am ET Mon, after SNF ends)
-    - cron: '0 5 * * 1'
-    # Monday Night Football: 5:00 AM UTC Tue (12am ET Tue, after MNF ends)
-    - cron: '0 5 * * 2'
   push:
     branches:
-      - main  # Change to your default branch name if different
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Deploy to VPS
       uses: appleboy/ssh-action@v1.0.3
@@ -36,13 +20,28 @@ jobs:
         port: ${{ secrets.VPS_PORT || 22 }}
         script: |
           cd ${{ secrets.VPS_PROJECT_PATH || '/home/$USER/nfl-standings' }}
-            echo "Fetching latest from origin/main..."
-            git fetch origin main || true
-            echo "Resetting local repo to origin/main (discarding local changes)..."
-            git reset --hard origin/main
-            git clean -fd
-          echo "Code deployed, now building and running container..."
+          echo "Fetching latest from origin/main..."
+          git fetch origin main || true
+          echo "Resetting local repo to origin/main..."
+          git reset --hard origin/main
+          git clean -fd
+
+          echo "Building image..."
           cd ${{ secrets.VPS_PROJECT_PATH || '/home/$USER/nfl-standings' }}
           docker build -t nfl-standings .
-          docker run --rm -v "$(pwd)/output:/app/output" -e PYTHONUNBUFFERED=1 -e DOCKER=true -e OUTPUT_DIR=/app/output nfl-standings
 
+          echo "Restarting app container..."
+          docker rm -f nfl-standings || true
+          mkdir -p data
+          docker run -d \
+            --name nfl-standings \
+            --restart unless-stopped \
+            -p 8000:8000 \
+            -v "$(pwd)/data:/app/data" \
+            -e PYTHONUNBUFFERED=1 \
+            -e DATA_DIR=/app/data \
+            -e DATABASE_PATH=/app/data/standings.db \
+            -e OUTPUT_DIR=/app/data/exports \
+            -e PORT=8000 \
+            -e REFRESH_INTERVAL_SECONDS=3600 \
+            nfl-standings

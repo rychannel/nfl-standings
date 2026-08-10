@@ -5,9 +5,14 @@ services:
     build: .
     container_name: nfl-standings
     volumes:
-      - ./output:/app/output
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
-      - DOCKER=true
-      - OUTPUT_DIR=/app/output
-    restart: on-failure
+      - DATA_DIR=/app/data
+      - DATABASE_PATH=/app/data/standings.db
+      - OUTPUT_DIR=/app/data/exports
+      - PORT=8000
+      - REFRESH_INTERVAL_SECONDS=3600
+    restart: unless-stopped
