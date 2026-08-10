@@ -1,21 +1,21 @@
 # GitHub Actions Setup
 
-This repository uses GitHub Actions to deploy the NFL standings app.
+This repository uses GitHub Actions to automatically update NFL standings data.
 
 ## Workflow: Update NFL Standings
 
 **File:** `.github/workflows/update-standings.yml`
 
-### Triggers
-- Pushes to `main`
-- Manual runs from the Actions tab
+### Schedule
+- Runs every **Tuesday at 8:00 AM UTC**
+- Can be manually triggered via GitHub UI (Actions tab → Update NFL Standings → Run workflow)
 
 ### What it does
 1. Checks out the repository
-2. Deploys the latest code to the VPS over SSH
-3. Rebuilds the Docker image
-4. Restarts the long-running web container
-5. Leaves periodic database refreshes to the app itself
+2. Sets up Python 3.12
+3. Installs dependencies from `requirements.txt`
+4. Runs `standings.py` to fetch latest data
+5. Commits and pushes updated CSV/HTML files back to the repo
 
 ### Manual Trigger
 1. Go to your repository on GitHub
@@ -23,12 +23,23 @@ This repository uses GitHub Actions to deploy the NFL standings app.
 3. Select **Update NFL Standings** workflow
 4. Click **Run workflow** → **Run workflow**
 
-### Runtime Outputs
-- Web UI on port `8000`
-- SQLite database at `data/standings.db`
-- Snapshot exports under `data/exports/`
+### Outputs
+- `nfl_team_records.csv` - Updated standings data
+- `nfl_team_records.html` - Visual report with timestamp
 
 ### Setup Requirements
-- GitHub Actions secrets for VPS access
-- A host with Docker installed
-- Port `8000` reachable if you want the UI public
+- Repository must allow GitHub Actions (enabled by default)
+- No secrets needed - uses public ESPN API
+- Commits are made by `github-actions[bot]`
+
+### Customization
+To change the schedule, edit the cron expression in the workflow file:
+```yaml
+schedule:
+  - cron: '0 8 * * 2'  # Min Hour Day Month DayOfWeek
+```
+
+Examples:
+- Daily at 8 AM: `'0 8 * * *'`
+- Every 6 hours: `'0 */6 * * *'`
+- Mondays and Thursdays at 9 AM: `'0 9 * * 1,4'`

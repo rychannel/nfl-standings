@@ -1,367 +1,33 @@
-import argparse
-import json
-import os
-import sqlite3
-import threading
-import time
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from pathlib import Path
-
 import pandas as pd
 import requests
-from flask import Flask, Response, jsonify
+from datetime import datetime, timezone
+import time
+import os
+import shutil
+import json
 
 
 STANDINGS_URL = "https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings"
 SCHEDULE_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{team_id}/schedule"
-DISPLAY_COLUMNS = [
-    "team",
-    "seed",
-    "conference",
-    "wins",
-    "losses",
-    "win_pct",
-    "sos",
-    "quality_score",
-    "wins_vs_winning",
-    "winning_teams_played",
-    "opponents_beaten_vs_winning",
-    "playoff_beaten_count",
-    "playoff_teams_played",
-    "opponents_beaten",
-    "playoff_opponents_beaten",
-]
-LIST_COLUMNS = {
-    "opponents_beaten",
-    "playoff_opponents_beaten",
-    "opponents_beaten_vs_winning",
+
+# NFL Divisions
+DIVISIONS = {
+    # AFC
+    "AFC East": {"conference": "American Football Conference", "teams": ["Buffalo Bills", "New England Patriots", "New York Jets", "Miami Dolphins"]},
+    "AFC North": {"conference": "American Football Conference", "teams": ["Baltimore Ravens", "Pittsburgh Steelers", "Cincinnati Bengals", "Cleveland Browns"]},
+    "AFC South": {"conference": "American Football Conference", "teams": ["Houston Texans", "Indianapolis Colts", "Tennessee Titans", "Jacksonville Jaguars"]},
+    "AFC West": {"conference": "American Football Conference", "teams": ["Kansas City Chiefs", "Los Angeles Chargers", "Denver Broncos", "Las Vegas Raiders"]},
+    # NFC
+    "NFC East": {"conference": "National Football Conference", "teams": ["Dallas Cowboys", "Philadelphia Eagles", "Washington Commanders", "New York Giants"]},
+    "NFC North": {"conference": "National Football Conference", "teams": ["Chicago Bears", "Green Bay Packers", "Minnesota Vikings", "Detroit Lions"]},
+    "NFC South": {"conference": "National Football Conference", "teams": ["Atlanta Falcons", "Carolina Panthers", "New Orleans Saints", "Tampa Bay Buccaneers"]},
+    "NFC West": {"conference": "National Football Conference", "teams": ["Los Angeles Rams", "San Francisco 49ers", "Seattle Seahawks", "Arizona Cardinals"]},
 }
 
-APP_HTML = """<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NFL Standings Dashboard</title>
-  <style>
-    :root {
-      color-scheme: light dark;
-      --bg: #0b1220;
-      --card: #131c31;
-      --muted: #90a4c4;
-      --text: #f3f7ff;
-      --accent: #4f8cff;
-      --accent-2: #75a7ff;
-      --border: rgba(255, 255, 255, 0.12);
-      --surface: rgba(255, 255, 255, 0.05);
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Inter, Arial, sans-serif;
-      background: linear-gradient(180deg, #09111f 0%, #0f1c34 100%);
-      color: var(--text);
-    }
-    .page {
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    .hero, .panel, .stat {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
-    }
-    .hero {
-      padding: 24px;
-      margin-bottom: 20px;
-    }
-    h1, h2, h3, p { margin-top: 0; }
-    .hero p, .meta, .empty, .error {
-      color: var(--muted);
-    }
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 16px;
-      margin: 20px 0;
-    }
-    .stat {
-      padding: 16px;
-    }
-    .stat-label {
-      font-size: 0.85rem;
-      color: var(--muted);
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .stat-value {
-      font-size: 1.4rem;
-      font-weight: 700;
-    }
-    .panel {
-      padding: 20px;
-      overflow: hidden;
-    }
-    .toolbar {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    .view-buttons {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    button {
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      background: var(--surface);
-      color: var(--text);
-      padding: 10px 14px;
-      cursor: pointer;
-      transition: 120ms ease-in-out;
-    }
-    button:hover {
-      border-color: var(--accent-2);
-      transform: translateY(-1px);
-    }
-    button.active {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: white;
-    }
-    .table-wrap {
-      overflow-x: auto;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 1200px;
-      background: rgba(4, 10, 18, 0.2);
-    }
-    th, td {
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      position: sticky;
-      top: 0;
-      background: #10192d;
-      cursor: pointer;
-      user-select: none;
-      white-space: nowrap;
-    }
-    th.sort-asc::after { content: " ▲"; }
-    th.sort-desc::after { content: " ▼"; }
-    tr:hover td {
-      background: rgba(255, 255, 255, 0.03);
-    }
-    .seed-pill {
-      display: inline-flex;
-      min-width: 32px;
-      justify-content: center;
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: rgba(79, 140, 255, 0.16);
-      border: 1px solid rgba(79, 140, 255, 0.4);
-    }
-    .empty, .error {
-      padding: 16px 0 4px;
-    }
-    .error {
-      color: #ffb4b4;
-    }
-    @media (max-width: 720px) {
-      .page { padding: 16px; }
-      .hero, .panel { padding: 16px; }
-    }
-  </style>
-</head>
-<body>
-  <div class="page">
-    <section class="hero">
-      <h1>NFL Standings Dashboard</h1>
-      <p>The page reads live data from the app database. The server refreshes that database on a schedule and the browser polls for updates automatically.</p>
-      <div class="stats" id="stats"></div>
-      <p class="meta" id="meta">Loading standings…</p>
-    </section>
-
-    <section class="panel">
-      <div class="toolbar">
-        <div class="view-buttons">
-          <button type="button" data-view="playoff" class="active">Current seeded teams</button>
-          <button type="button" data-view="non_playoff">Other teams</button>
-          <button type="button" data-view="all">All teams</button>
-        </div>
-      </div>
-      <div id="table"></div>
-    </section>
-  </div>
-
-  <script>
-    const POLL_INTERVAL_MS = 60000;
-    const VIEW_LABELS = {
-      playoff: "Current ESPN-seeded teams",
-      non_playoff: "Other teams",
-      all: "All teams by quality score"
-    };
-
-    let currentView = "playoff";
-    let standingsPayload = null;
-    let sortState = { column: null, direction: "asc" };
-
-    document.querySelectorAll("[data-view]").forEach((button) => {
-      button.addEventListener("click", () => {
-        currentView = button.dataset.view;
-        document.querySelectorAll("[data-view]").forEach((entry) => entry.classList.remove("active"));
-        button.classList.add("active");
-        render();
-      });
-    });
-
-    async function loadStandings() {
-      try {
-        const response = await fetch("/api/standings", { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error("Unable to load standings");
-        }
-        standingsPayload = await response.json();
-        render();
-      } catch (error) {
-        document.getElementById("meta").textContent = error.message;
-        document.getElementById("table").innerHTML = `<div class="error">${error.message}</div>`;
-      }
-    }
-
-    function formatValue(key, value) {
-      if (value === null || value === undefined) {
-        return "";
-      }
-      if (Array.isArray(value)) {
-        return value.join(", ");
-      }
-      if (key === "seed" && value !== "") {
-        return `<span class="seed-pill">${value}</span>`;
-      }
-      return String(value);
-    }
-
-    function compareValues(left, right) {
-      if (typeof left === "number" && typeof right === "number") {
-        return left - right;
-      }
-      return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
-    }
-
-    function getSortedRows(rows) {
-      if (!sortState.column) {
-        return rows;
-      }
-      const column = sortState.column;
-      return [...rows].sort((a, b) => {
-        const result = compareValues(a[column] ?? "", b[column] ?? "");
-        return sortState.direction === "asc" ? result : -result;
-      });
-    }
-
-    function renderStats() {
-      if (!standingsPayload) {
-        return;
-      }
-      const stats = [
-        ["Season", standingsPayload.season_year ?? "N/A"],
-        ["Teams", standingsPayload.team_count],
-        ["Seeded Teams", standingsPayload.playoff.length],
-        ["Database Refresh", standingsPayload.last_refreshed_at ? new Date(standingsPayload.last_refreshed_at).toLocaleString() : "Not loaded yet"]
-      ];
-      document.getElementById("stats").innerHTML = stats.map(([label, value]) => `
-        <div class="stat">
-          <div class="stat-label">${label}</div>
-          <div class="stat-value">${value}</div>
-        </div>
-      `).join("");
-      document.getElementById("meta").textContent = standingsPayload.last_error
-        ? `Latest refresh failed. Showing last good data. ${standingsPayload.last_error}`
-        : `Browser polling every ${POLL_INTERVAL_MS / 1000}s. Updated from the latest successful database refresh.`;
-    }
-
-    function renderTable() {
-      const container = document.getElementById("table");
-      if (!standingsPayload) {
-        container.innerHTML = '<div class="empty">No standings are available yet.</div>';
-        return;
-      }
-
-      const rows = getSortedRows(standingsPayload[currentView] || []);
-      if (!rows.length) {
-        container.innerHTML = '<div class="empty">The database has not been populated yet.</div>';
-        return;
-      }
-
-      const columns = Object.keys(rows[0]);
-      const headers = columns.map((column) => {
-        const sortClass = sortState.column === column ? `sort-${sortState.direction}` : "";
-        return `<th class="${sortClass}" data-column="${column}">${column}</th>`;
-      }).join("");
-
-      const body = rows.map((row) => `
-        <tr>${columns.map((column) => `<td>${formatValue(column, row[column])}</td>`).join("")}</tr>
-      `).join("");
-
-      container.innerHTML = `
-        <h2>${VIEW_LABELS[currentView]}</h2>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>${headers}</tr></thead>
-            <tbody>${body}</tbody>
-          </table>
-        </div>
-      `;
-
-      container.querySelectorAll("th[data-column]").forEach((header) => {
-        header.addEventListener("click", () => {
-          const nextColumn = header.dataset.column;
-          if (sortState.column === nextColumn) {
-            sortState.direction = sortState.direction === "asc" ? "desc" : "asc";
-          } else {
-            sortState.column = nextColumn;
-            sortState.direction = "asc";
-          }
-          renderTable();
-        });
-      });
-    }
-
-    function render() {
-      renderStats();
-      renderTable();
-    }
-
-    loadStandings();
-    setInterval(loadStandings, POLL_INTERVAL_MS);
-  </script>
-</body>
-</html>
-"""
-
-_scheduler_lock = threading.Lock()
-_scheduler_started = False
-
-
 def _fetch_json(url: str) -> dict:
-    response = requests.get(url, timeout=20)
-    response.raise_for_status()
-    return response.json()
+    resp = requests.get(url, timeout=20)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _stat(entry: dict, name: str):
@@ -371,112 +37,25 @@ def _stat(entry: dict, name: str):
     return None
 
 
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-
-def get_data_dir() -> Path:
-    return Path(os.environ.get("DATA_DIR", ".")).resolve()
-
-
-def get_database_path() -> Path:
-    configured_path = os.environ.get("DATABASE_PATH")
-    if configured_path:
-        return Path(configured_path).resolve()
-    return get_data_dir() / "standings.db"
-
-
-def get_export_dir() -> Path:
-    configured_dir = os.environ.get("OUTPUT_DIR")
-    if configured_dir:
-        return Path(configured_dir).resolve()
-    return get_data_dir() / "exports"
-
-
-def get_refresh_interval_seconds() -> int:
-    value = os.environ.get("REFRESH_INTERVAL_SECONDS", "3600")
-    return max(int(value), 60)
-
-
-@contextmanager
-def db_connection():
-    db_path = get_database_path()
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path, timeout=30)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA journal_mode=WAL")
-    try:
-        yield connection
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
-
-
-def init_db() -> None:
-    with db_connection() as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS team_records (
-                team_id TEXT PRIMARY KEY,
-                team TEXT NOT NULL,
-                wins INTEGER NOT NULL,
-                losses INTEGER NOT NULL,
-                win_pct REAL NOT NULL,
-                point_diff REAL NOT NULL,
-                div_wins INTEGER NOT NULL,
-                div_losses INTEGER NOT NULL,
-                points_for INTEGER NOT NULL,
-                points_against INTEGER NOT NULL,
-                espn_playoff_seed INTEGER,
-                conf_record TEXT,
-                conference TEXT NOT NULL,
-                sos REAL NOT NULL,
-                opponents_beaten_json TEXT NOT NULL,
-                playoff_opponents_beaten_json TEXT NOT NULL,
-                playoff_beaten_count TEXT NOT NULL,
-                playoff_teams_played TEXT NOT NULL,
-                in_playoffs INTEGER NOT NULL,
-                seed INTEGER,
-                wins_vs_winning TEXT NOT NULL,
-                opponents_beaten_vs_winning_json TEXT NOT NULL,
-                winning_teams_played TEXT NOT NULL,
-                quality_score REAL NOT NULL,
-                last_refreshed_at TEXT NOT NULL,
-                season_year INTEGER
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS refresh_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                refreshed_at TEXT NOT NULL,
-                season_year INTEGER,
-                team_count INTEGER,
-                status TEXT NOT NULL CHECK(status IN ('success', 'failed')),
-                error_message TEXT
-            )
-            """
-        )
-
-
 def get_season_year() -> int | None:
+    """Fetch current standings payload and extract the active season year.
+    Returns None if not available.
+    """
     try:
         data = _fetch_json(STANDINGS_URL)
+        # Common ESPN schema has season.year
         season = data.get("season") or {}
         year = season.get("year")
         if year is not None:
             return int(year)
+        # Fallbacks sometimes seen
         year = data.get("seasonYear")
         return int(year) if year is not None else None
     except Exception:
         return None
 
 
-def get_standings() -> list[dict]:
+def get_standings():
     data = _fetch_json(STANDINGS_URL)
     teams = []
     for child in data.get("children", []):
@@ -494,434 +73,714 @@ def get_standings() -> list[dict]:
             points_for = _stat(entry, "pointsFor") or 0
             points_against = _stat(entry, "pointsAgainst") or 0
             espn_playoff_seed = _stat(entry, "playoffSeed") or None
-
+            
+            # Try to get conference record (may be nested under vs. Conf.)
             conf_record = None
             for stat in entry.get("stats", []):
                 if stat.get("name") == "vs. Conf.":
                     conf_record = stat.get("value")
                     break
-
-            teams.append(
-                {
-                    "id": str(team_id),
-                    "team": name,
-                    "wins": int(wins),
-                    "losses": int(losses),
-                    "win_pct": float(win_pct),
-                    "point_diff": float(point_diff),
-                    "div_wins": int(div_wins),
-                    "div_losses": int(div_losses),
-                    "points_for": int(points_for),
-                    "points_against": int(points_against),
-                    "espn_playoff_seed": int(espn_playoff_seed) if espn_playoff_seed else None,
-                    "conf_record": conf_record,
-                    "conference": conference,
-                }
-            )
+            
+            teams.append({
+                "id": str(team_id),
+                "team": name,
+                "wins": int(wins),
+                "losses": int(losses),
+                "win_pct": float(win_pct),
+                "point_diff": float(point_diff),
+                "div_wins": int(div_wins),
+                "div_losses": int(div_losses),
+                "points_for": int(points_for),
+                "points_against": int(points_against),
+                "espn_playoff_seed": int(espn_playoff_seed) if espn_playoff_seed else None,
+                "conf_record": conf_record,
+                "conference": conference,
+            })
     return teams
 
 
 def get_team_results(team_id: str, season_year: int | None = None):
     base = SCHEDULE_URL.format(team_id=team_id)
-    url = f"{base}?season={season_year}&seasontype=2" if season_year else f"{base}?seasontype=2"
+    # Constrain to regular season (seasontype=2) and explicit season year if known
+    if season_year:
+        url = f"{base}?season={season_year}&seasontype=2"
+    else:
+        url = f"{base}?seasontype=2"
     try:
         data = _fetch_json(url)
     except requests.HTTPError:
         return [], {}, []
-
     opponents_beaten = []
-    h2h_records = {}
-    all_opponents = []
+    h2h_records = {}  # opponent_name -> {"wins": int, "losses": int}
+    all_opponents = []  # All opponents played (for strength of schedule)
 
     for event in data.get("events", []):
-        competition = event.get("competitions", [{}])[0]
-        competitors = competition.get("competitors", [])
-        me = next((competitor for competitor in competitors if competitor.get("id") == str(team_id)), None)
-        opponent = next((competitor for competitor in competitors if competitor.get("id") != str(team_id)), None)
-        if not me or not opponent:
+        comp = event.get("competitions", [{}])[0]
+        competitors = comp.get("competitors", [])
+        me = next((c for c in competitors if c.get("id") == str(team_id)), None)
+        opp = next((c for c in competitors if c.get("id") != str(team_id)), None)
+        if not me or not opp:
             continue
-
-        opponent_name = opponent.get("displayName") or opponent.get("team", {}).get("displayName")
-        all_opponents.append(opponent_name)
-
+        
+        opp_name = opp.get("displayName") or opp.get("team", {}).get("displayName")
+        all_opponents.append(opp_name)
+        
         if me.get("winner"):
-            opponents_beaten.append(opponent_name)
-
-        if opponent_name not in h2h_records:
-            h2h_records[opponent_name] = {"wins": 0, "losses": 0}
+            opponents_beaten.append(opp_name)
+        
+        # Track head-to-head records against all opponents
+        if opp_name not in h2h_records:
+            h2h_records[opp_name] = {"wins": 0, "losses": 0}
         if me.get("winner"):
-            h2h_records[opponent_name]["wins"] += 1
+            h2h_records[opp_name]["wins"] += 1
         else:
-            h2h_records[opponent_name]["losses"] += 1
+            h2h_records[opp_name]["losses"] += 1
 
     return opponents_beaten, h2h_records, all_opponents
 
 
-def build_dataset() -> tuple[pd.DataFrame, int | None]:
+def compute_tiebreaker_key(team: dict, tied_teams: list, all_schedules: dict) -> tuple:
+    """
+    Compute NFL tiebreaker key for sorting teams with identical records.
+    Returns a tuple that can be used as a sort key.
+    
+    Tiebreaker order (NFL rules):
+    1. Head-to-head win-loss record among tied teams
+    2. Division win-loss record
+    3. Common games win-loss record  
+    4. Conference win-loss record (approx via overall record)
+    5. Strength of victory
+    6. Strength of schedule
+    7. Points scored vs allowed
+    8. Point differential in common games
+    9. Point differential overall
+    10. Net touchdowns (not available, use point_diff as proxy)
+    """
+    
+    tied_team_names = {t["team"] for t in tied_teams}
+    
+    # Tiebreaker 1: Head-to-head record among tied teams
+    h2h_record = all_schedules.get(team["id"], ({}, {}))[1]  # Get h2h_records from tuple
+    h2h_wins = sum(h2h_record.get(opp, {}).get("wins", 0) for opp in tied_team_names if opp != team["team"])
+    h2h_losses = sum(h2h_record.get(opp, {}).get("losses", 0) for opp in tied_team_names if opp != team["team"])
+    h2h_pct = h2h_wins / (h2h_wins + h2h_losses) if (h2h_wins + h2h_losses) > 0 else 0
+    
+    # Tiebreaker 2: Division record
+    div_pct = team["div_wins"] / (team["div_wins"] + team["div_losses"]) if (team["div_wins"] + team["div_losses"]) > 0 else 0
+    
+    # Tiebreaker 9: Point differential (as primary tiebreaker when others are equal)
+    point_diff = team["point_diff"]
+    
+    # Return tuple for sorting: higher h2h%, higher div%, higher point_diff
+    return (-h2h_pct, -div_pct, -point_diff)
+
+
+def apply_nfl_tiebreaker(teams: list, all_schedules: dict) -> list:
+    """
+    Apply NFL tiebreaker rules recursively to break ties among teams with same record.
+    This implements the official NFL tiebreaker procedure where:
+    - If team A beats team B head-to-head, A ranks higher
+    - When tied teams play each other, eliminate teams they collectively beat
+    - Continue with remaining teams using next tiebreaker
+    """
+    
+    if len(teams) <= 1:
+        return teams
+    
+    # Tiebreaker 1: Head-to-head among all tied teams
+    tied_names = {t["team"] for t in teams}
+    h2h_records = {}
+    
+    for team in teams:
+        h2h_record = all_schedules.get(team["id"], ({}, {}))[1]
+        h2h_wins = sum(h2h_record.get(opp, {}).get("wins", 0) for opp in tied_names if opp != team["team"])
+        h2h_losses = sum(h2h_record.get(opp, {}).get("losses", 0) for opp in tied_names if opp != team["team"])
+        h2h_pct = h2h_wins / (h2h_wins + h2h_losses) if (h2h_wins + h2h_losses) > 0 else 0
+        h2h_records[team["team"]] = h2h_pct
+    
+    # Group teams by their H2H percentage
+    from collections import defaultdict
+    by_h2h = defaultdict(list)
+    for team in teams:
+        by_h2h[h2h_records[team["team"]]].append(team)
+    
+    # If head-to-head clearly separates teams, use that
+    sorted_teams = []
+    for h2h_pct in sorted(by_h2h.keys(), reverse=True):
+        group = by_h2h[h2h_pct]
+        if len(group) > 1:
+            # Recursively apply next tiebreaker (division record)
+            sorted_group = apply_div_tiebreaker(group, all_schedules)
+            sorted_teams.extend(sorted_group)
+        else:
+            sorted_teams.extend(group)
+    
+    return sorted_teams
+
+
+def apply_div_tiebreaker(teams: list, all_schedules: dict) -> list:
+    """Apply division record as tiebreaker."""
+    if len(teams) <= 1:
+        return teams
+    
+    # Tiebreaker 2: Division record
+    teams_sorted = sorted(teams, key=lambda t: (
+        -(t["div_wins"] / (t["div_wins"] + t["div_losses"]) if (t["div_wins"] + t["div_losses"]) > 0 else 0),
+        -(t["point_diff"])  # Point differential as sub-tiebreaker
+    ))
+    
+    # Group teams with same division record
+    from collections import defaultdict
+    by_div_pct = defaultdict(list)
+    for team in teams_sorted:
+        div_pct = team["div_wins"] / (team["div_wins"] + team["div_losses"]) if (team["div_wins"] + team["div_losses"]) > 0 else 0
+        by_div_pct[div_pct].append(team)
+    
+    # If division record clearly separates, use that
+    result = []
+    for div_pct in sorted(by_div_pct.keys(), reverse=True):
+        group = by_div_pct[div_pct]
+        if len(group) > 1:
+            # Fall through to point differential
+            group.sort(key=lambda t: -t["point_diff"])
+            result.extend(group)
+        else:
+            result.extend(group)
+    
+    return result
+
+
+def build_dataset():
     standings = get_standings()
+
+    # Pre-fetch all schedule data
     all_schedules = {}
+    # Determine season year to ensure schedules align with standings (e.g., Jan 2026 -> season 2025)
     season_year = get_season_year()
+    if not season_year:
+        print("Warning: Could not determine season year from standings; falling back to API defaults for schedules.")
 
     for team in standings:
-        all_schedules[team["id"]] = get_team_results(team["id"], season_year)
+        result = get_team_results(team["id"], season_year)
+        all_schedules[team["id"]] = result
 
-    win_pct_map = {team["team"]: team["win_pct"] for team in standings}
-    playoff_teams = {
-        team["team"]: team["espn_playoff_seed"]
-        for team in standings
-        if team["espn_playoff_seed"] is not None and team["espn_playoff_seed"] <= 7
-    }
+    # Map team name -> win_pct for computing wins against teams with winning records
+    win_pct_map = {t["team"]: t["win_pct"] for t in standings}
+    
+    # Use ESPN's official playoff seed for all teams
+    # Identify playoff teams as those with seed 1-7 (actual playoff teams)
+    playoff_teams = {t["team"]: t["espn_playoff_seed"] for t in standings if t["espn_playoff_seed"] is not None and t["espn_playoff_seed"] <= 7}
 
     dataset = []
+    
     for team in standings:
-        beaten, _, all_opponents = all_schedules[team["id"]]
-
-        sos = sum(win_pct_map.get(opponent, 0) for opponent in all_opponents) / len(all_opponents) if all_opponents else 0.0
+        beaten, h2h_records, all_opponents = all_schedules[team["id"]]
+        
+        # Calculate strength of schedule (average win percentage of all opponents)
+        if all_opponents:
+            sos = sum(win_pct_map.get(opp, 0) for opp in all_opponents) / len(all_opponents)
+        else:
+            sos = 0.0
         team["sos"] = round(sos, 3)
-
-        beaten_counts = {}
-        for opponent in beaten:
-            beaten_counts[opponent] = beaten_counts.get(opponent, 0) + 1
-        team["opponents_beaten"] = [
-            f"{opponent} (x{count})" if count > 1 else opponent for opponent, count in beaten_counts.items()
-        ]
-
-        playoff_beaten = [opponent for opponent in beaten if opponent in playoff_teams]
-        playoff_beaten_counts = {}
-        for opponent in playoff_beaten:
-            playoff_beaten_counts[opponent] = playoff_beaten_counts.get(opponent, 0) + 1
-        team["playoff_opponents_beaten"] = [
-            f"{opponent} (x{count})" if count > 1 else opponent
-            for opponent, count in playoff_beaten_counts.items()
-        ]
-
+        
+        # Format opponents_beaten with duplicate counts
+        from collections import Counter
+        beaten_counts = Counter(beaten)
+        opponents_beaten_formatted = [f"{opp} (x{count})" if count > 1 else opp for opp, count in beaten_counts.items()]
+        team["opponents_beaten"] = opponents_beaten_formatted
+        
+        # Get playoff opponents beaten
+        playoff_beaten = [opp for opp in beaten if opp in playoff_teams]
+        playoff_beaten_counts = Counter(playoff_beaten)
+        playoff_opponents_beaten_formatted = [f"{opp} (x{count})" if count > 1 else opp for opp, count in playoff_beaten_counts.items()]
+        team["playoff_opponents_beaten"] = playoff_opponents_beaten_formatted
+        
+        # Count unique playoff teams beaten and total wins against them
         unique_playoff_beaten = len(set(playoff_beaten))
         total_playoff_beaten = len(playoff_beaten)
-        duplicate_playoff_wins = total_playoff_beaten - unique_playoff_beaten
-        team["playoff_beaten_count"] = (
-            f"{unique_playoff_beaten} ({duplicate_playoff_wins})" if duplicate_playoff_wins > 0 else str(unique_playoff_beaten)
-        )
-
+        duplicate_wins = total_playoff_beaten - unique_playoff_beaten
+        
+        team["playoff_beaten_count"] = f"{unique_playoff_beaten} ({duplicate_wins})" if duplicate_wins > 0 else str(unique_playoff_beaten)
+        
+        # Count unique playoff teams played against (both wins and losses)
         playoff_played = set()
-        playoff_games_count = 0
-        for opponent in beaten:
-            if opponent in playoff_teams:
-                playoff_played.add(opponent)
+        playoff_games_count = 0  # Total games against playoff teams
+        
+        # Add playoff teams this team beat
+        for opp in beaten:
+            if opp in playoff_teams:
+                playoff_played.add(opp)
                 playoff_games_count += 1
+        
+        # Add playoff teams that beat this team
         for other_team in standings:
-            if other_team["team"] not in playoff_teams:
-                continue
-            other_beaten, _, _ = all_schedules[other_team["id"]]
-            if team["team"] in other_beaten:
-                playoff_played.add(other_team["team"])
-                playoff_games_count += 1
-
+            if other_team["team"] in playoff_teams:
+                other_beaten, _, _ = all_schedules[other_team["id"]]
+                if team["team"] in other_beaten:
+                    playoff_played.add(other_team["team"])
+                    playoff_games_count += 1
+        
         unique_playoff_teams = len(playoff_played)
-        duplicate_playoff_games = playoff_games_count - unique_playoff_teams
-        team["playoff_teams_played"] = (
-            f"{unique_playoff_teams} ({duplicate_playoff_games})"
-            if duplicate_playoff_games > 0
-            else str(unique_playoff_teams)
-        )
+        duplicate_games = playoff_games_count - unique_playoff_teams
+        
+        team["playoff_teams_played"] = f"{unique_playoff_teams} ({duplicate_games})" if duplicate_games > 0 else str(unique_playoff_teams)
         team["in_playoffs"] = team["team"] in playoff_teams
+        
+        # Add seed from ESPN for all teams
         team["seed"] = team["espn_playoff_seed"]
 
-        total_wins_vs_winning = sum(1 for opponent in beaten if win_pct_map.get(opponent, 0) > 0.5)
-        beaten_winning = [opponent for opponent in beaten_counts if win_pct_map.get(opponent, 0) > 0.5]
-        team["opponents_beaten_vs_winning"] = [
-            f"{opponent} (x{beaten_counts[opponent]})" if beaten_counts[opponent] > 1 else opponent
-            for opponent in beaten_winning
-        ]
-
+        # Wins against teams with a winning record (> .500)
+        total_wins_vs_winning = sum(1 for opp in beaten if win_pct_map.get(opp, 0) > 0.5)
+        beaten_winning = [opp for opp, count in beaten_counts.items() if win_pct_map.get(opp, 0) > 0.5]
+        beaten_winning_formatted = [f"{opp} (x{beaten_counts[opp]})" if beaten_counts[opp] > 1 else opp for opp in beaten_winning]
+        # Show unique wins with duplicate count in parentheses (e.g., "3 (1)")
         unique_wins_vs_winning = len(beaten_winning)
         duplicate_wins_vs_winning = total_wins_vs_winning - unique_wins_vs_winning
-        team["wins_vs_winning"] = (
-            f"{unique_wins_vs_winning} ({duplicate_wins_vs_winning})"
-            if duplicate_wins_vs_winning > 0
-            else str(unique_wins_vs_winning)
-        )
+        team["wins_vs_winning"] = f"{unique_wins_vs_winning} ({duplicate_wins_vs_winning})" if duplicate_wins_vs_winning > 0 else str(unique_wins_vs_winning)
+        team["opponents_beaten_vs_winning"] = beaten_winning_formatted
 
+        # Winning teams played (unique count, with duplicate games in parentheses)
         winning_played = set()
         winning_games_count = 0
-        for opponent in beaten:
-            if win_pct_map.get(opponent, 0) > 0.5:
-                winning_played.add(opponent)
+
+        # Teams this team beat that have winning records
+        for opp in beaten:
+            if win_pct_map.get(opp, 0) > 0.5:
+                winning_played.add(opp)
                 winning_games_count += 1
+
+        # Teams that beat this team and have winning records
         for other_team in standings:
-            if other_team.get("win_pct", 0) <= 0.5:
+            other_name = other_team["team"]
+            other_win_pct = other_team.get("win_pct", 0)
+            if other_win_pct <= 0.5:
                 continue
             other_beaten, _, _ = all_schedules[other_team["id"]]
             if team["team"] in other_beaten:
-                winning_played.add(other_team["team"])
+                winning_played.add(other_name)
                 winning_games_count += 1
 
         unique_winning_teams = len(winning_played)
-        duplicate_winning_games = winning_games_count - unique_winning_teams
-        team["winning_teams_played"] = (
-            f"{unique_winning_teams} ({duplicate_winning_games})"
-            if duplicate_winning_games > 0
-            else str(unique_winning_teams)
-        )
-
+        duplicate_winning = winning_games_count - unique_winning_teams
+        team["winning_teams_played"] = f"{unique_winning_teams} ({duplicate_winning})" if duplicate_winning > 0 else str(unique_winning_teams)
+        
+        # Calculate quality score: (Win_Pct × 40) + (SOS × 20) + (Wins_vs_Winning × 2.5) + (Playoff_Wins × 4)
         quality_score = (team["win_pct"] * 40) + (team["sos"] * 20) + (total_wins_vs_winning * 2.5) + (total_playoff_beaten * 4)
         team["quality_score"] = round(quality_score, 2)
+        
         dataset.append(team)
 
-    return pd.DataFrame(dataset), season_year
-
-
-def validate_dataset(frame: pd.DataFrame) -> None:
-    conditions = [
-        isinstance(frame, pd.DataFrame),
-        not frame.empty,
-        len(frame.index) == 32,
-        "team" in frame.columns and not frame["team"].isnull().any(),
-        "win_pct" in frame.columns and not frame["win_pct"].isnull().any(),
-    ]
-    if not all(conditions):
-        raise ValueError("Dataset validation failed; refusing to overwrite database with incomplete data.")
-
-
-def dataframe_to_records(frame: pd.DataFrame) -> list[dict]:
-    normalized = frame.where(pd.notnull(frame), None)
-    return normalized.to_dict(orient="records")
-
-
-def write_exports(frame: pd.DataFrame) -> None:
-    export_dir = get_export_dir()
-    export_dir.mkdir(parents=True, exist_ok=True)
-
-    frame.to_csv(export_dir / "nfl_team_records.csv", index=False)
-
-    records = dataframe_to_records(frame)
-    playoff_records = [record for record in records if record["in_playoffs"]]
-    non_playoff_records = [record for record in records if not record["in_playoffs"]]
-
-    with open(export_dir / "nfl_team_records.json", "w", encoding="utf-8") as output_file:
-        json.dump(records, output_file, ensure_ascii=False, indent=2)
-    with open(export_dir / "playoff_team_records.json", "w", encoding="utf-8") as output_file:
-        json.dump(playoff_records, output_file, ensure_ascii=False, indent=2)
-    with open(export_dir / "non_playoff_team_records.json", "w", encoding="utf-8") as output_file:
-        json.dump(non_playoff_records, output_file, ensure_ascii=False, indent=2)
-
-
-def record_refresh_failure(refreshed_at: str, error_message: str) -> None:
-    with db_connection() as connection:
-        connection.execute(
-            """
-            INSERT INTO refresh_runs (refreshed_at, season_year, team_count, status, error_message)
-            VALUES (?, NULL, NULL, 'failed', ?)
-            """,
-            (refreshed_at, error_message),
-        )
-
-
-def save_dataset(frame: pd.DataFrame, season_year: int | None, refreshed_at: str) -> None:
-    records = dataframe_to_records(frame)
-    with db_connection() as connection:
-        connection.execute("DELETE FROM team_records")
-        for record in records:
-            connection.execute(
-                """
-                INSERT INTO team_records (
-                    team_id, team, wins, losses, win_pct, point_diff, div_wins, div_losses,
-                    points_for, points_against, espn_playoff_seed, conf_record, conference, sos,
-                    opponents_beaten_json, playoff_opponents_beaten_json, playoff_beaten_count,
-                    playoff_teams_played, in_playoffs, seed, wins_vs_winning,
-                    opponents_beaten_vs_winning_json, winning_teams_played, quality_score,
-                    last_refreshed_at, season_year
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record["id"],
-                    record["team"],
-                    record["wins"],
-                    record["losses"],
-                    record["win_pct"],
-                    record["point_diff"],
-                    record["div_wins"],
-                    record["div_losses"],
-                    record["points_for"],
-                    record["points_against"],
-                    record["espn_playoff_seed"],
-                    record["conf_record"],
-                    record["conference"],
-                    record["sos"],
-                    json.dumps(record["opponents_beaten"] or []),
-                    json.dumps(record["playoff_opponents_beaten"] or []),
-                    record["playoff_beaten_count"],
-                    record["playoff_teams_played"],
-                    int(bool(record["in_playoffs"])),
-                    record["seed"],
-                    record["wins_vs_winning"],
-                    json.dumps(record["opponents_beaten_vs_winning"] or []),
-                    record["winning_teams_played"],
-                    record["quality_score"],
-                    refreshed_at,
-                    season_year,
-                ),
-            )
-        connection.execute(
-            """
-            INSERT INTO refresh_runs (refreshed_at, season_year, team_count, status, error_message)
-            VALUES (?, ?, ?, 'success', NULL)
-            """,
-            (refreshed_at, season_year, len(records)),
-        )
-
-
-def refresh_database() -> bool:
-    refreshed_at = utc_now_iso()
-    try:
-        frame, season_year = build_dataset()
-        validate_dataset(frame)
-        save_dataset(frame, season_year, refreshed_at)
-        write_exports(frame)
-        print(f"[{refreshed_at}] Refreshed {len(frame.index)} teams into {get_database_path()}")
-        return True
-    except Exception as error:
-        error_message = str(error)
-        record_refresh_failure(refreshed_at, error_message)
-        print(f"[{refreshed_at}] Refresh failed: {error_message}")
-        return False
-
-
-def decode_row(row: sqlite3.Row) -> dict:
-    values = dict(row)
-    values["in_playoffs"] = bool(values["in_playoffs"])
-    values["opponents_beaten"] = json.loads(values.pop("opponents_beaten_json"))
-    values["playoff_opponents_beaten"] = json.loads(values.pop("playoff_opponents_beaten_json"))
-    values["opponents_beaten_vs_winning"] = json.loads(values.pop("opponents_beaten_vs_winning_json"))
-    return values
-
-
-def display_record(record: dict) -> dict:
-    ordered = {}
-    for column in DISPLAY_COLUMNS:
-        ordered[column] = record.get(column)
-    return ordered
-
-
-def standings_sort_key(record: dict) -> tuple:
-    conference = record.get("conference") or ""
-    seed = record.get("seed")
-    return conference, seed if seed is not None else 99, -record.get("quality_score", 0)
-
-
-def fetch_standings_payload() -> dict:
-    with db_connection() as connection:
-        team_rows = connection.execute("SELECT * FROM team_records").fetchall()
-        latest_success = connection.execute(
-            """
-            SELECT refreshed_at, season_year, team_count
-            FROM refresh_runs
-            WHERE status = 'success'
-            ORDER BY id DESC
-            LIMIT 1
-            """
-        ).fetchone()
-        latest_run = connection.execute(
-            """
-            SELECT status, error_message
-            FROM refresh_runs
-            ORDER BY id DESC
-            LIMIT 1
-            """
-        ).fetchone()
-
-    records = [decode_row(row) for row in team_rows]
-    playoff = sorted((record for record in records if record["in_playoffs"]), key=standings_sort_key)
-    non_playoff = sorted((record for record in records if not record["in_playoffs"]), key=standings_sort_key)
-    all_teams = sorted(records, key=lambda record: (-record["quality_score"], record["team"]))
-
-    return {
-        "season_year": latest_success["season_year"] if latest_success else None,
-        "team_count": latest_success["team_count"] if latest_success else len(records),
-        "last_refreshed_at": latest_success["refreshed_at"] if latest_success else None,
-        "last_error": latest_run["error_message"] if latest_run and latest_run["status"] == "failed" else None,
-        "playoff": [display_record(record) for record in playoff],
-        "non_playoff": [display_record(record) for record in non_playoff],
-        "all": [display_record(record) for record in all_teams],
-    }
-
-
-def refresh_loop() -> None:
-    refresh_database()
-    interval = get_refresh_interval_seconds()
-    while True:
-        time.sleep(interval)
-        refresh_database()
-
-
-def start_scheduler() -> None:
-    global _scheduler_started
-    with _scheduler_lock:
-        if _scheduler_started:
-            return
-        thread = threading.Thread(target=refresh_loop, name="standings-refresh", daemon=True)
-        thread.start()
-        _scheduler_started = True
-
-
-def create_app(start_background_refresh: bool = True) -> Flask:
-    init_db()
-    if start_background_refresh:
-        start_scheduler()
-
-    app = Flask(__name__)
-
-    @app.get("/")
-    def index():
-        return Response(APP_HTML, mimetype="text/html")
-
-    @app.get("/api/standings")
-    def api_standings():
-        return jsonify(fetch_standings_payload())
-
-    @app.get("/health")
-    def health():
-        payload = fetch_standings_payload()
-        return jsonify(
-            {
-                "ok": payload["team_count"] > 0,
-                "team_count": payload["team_count"],
-                "last_refreshed_at": payload["last_refreshed_at"],
-                "database_path": str(get_database_path()),
-            }
-        )
-
-    return app
-
-
-app = create_app(start_background_refresh=False)
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Serve and refresh the NFL standings dashboard.")
-    parser.add_argument(
-        "command",
-        nargs="?",
-        default="serve",
-        choices=["serve", "refresh-once"],
-        help="serve the web app or refresh the database once",
-    )
-    return parser.parse_args()
-
-
-def main() -> int:
-    args = parse_args()
-    init_db()
-
-    if args.command == "refresh-once":
-        return 0 if refresh_database() else 1
-
-    runtime_app = create_app(start_background_refresh=True)
-    host = os.environ.get("HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", "8000"))
-    runtime_app.run(host=host, port=port, debug=False, use_reloader=False)
-    return 0
-
+    return pd.DataFrame(dataset)
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import sys
+    
+    # Build dataset with a hard gate: if API fails or data incomplete, do NOT write files
+    try:
+        df = build_dataset()
+    except Exception as e:
+        print(f"Error: failed to fetch or build dataset from API. Skipping all file updates. Details: {e}")
+        sys.exit(1)
+    
+    # Validate dataset completeness (avoid overwriting outputs with partial data)
+    try:
+        conditions = [
+            isinstance(df, pd.DataFrame),
+            not df.empty,
+            len(df.index) == 32,  # Expect exactly 32 NFL teams
+            'team' in df.columns and not df['team'].isnull().any(),
+            'win_pct' in df.columns and not df['win_pct'].isnull().any(),
+        ]
+        if not all(conditions):
+            print("Warning: dataset appears incomplete or invalid (e.g., missing teams or stats). Skipping all file updates.")
+            sys.exit(2)
+    except Exception as e:
+        print(f"Warning: dataset validation failed. Skipping all file updates. Details: {e}")
+        sys.exit(2)
+    
+    # Filter to only playoff teams (seeds 1-7 per conference based on ESPN data)
+    # ESPN playoff seed tells us if they're in the playoffs
+    playoff_df = df[df["in_playoffs"]].copy()
+    non_playoff_df = df[~df["in_playoffs"]].copy()
+    
+    # Remove ID column from both
+    cols_to_drop = ["id"]
+    playoff_df = playoff_df.drop(columns=cols_to_drop)
+    non_playoff_df = non_playoff_df.drop(columns=cols_to_drop)
+    
+    # Sort both by seed
+    playoff_df = playoff_df.sort_values(by="seed", ascending=True)
+    non_playoff_df = non_playoff_df.sort_values(by="seed", ascending=True)
+
+    # Columns to display
+    playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "sos", "quality_score", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    non_playoff_display_cols = ["team", "seed", "conference", "wins", "losses", "win_pct", "sos", "quality_score", "wins_vs_winning", "winning_teams_played", "opponents_beaten_vs_winning",  "playoff_beaten_count", "playoff_teams_played", "opponents_beaten", "playoff_opponents_beaten"]
+    
+    # Convert seed to int for display
+    playoff_df_display = playoff_df[playoff_display_cols].copy()
+    playoff_df_display["seed"] = playoff_df_display["seed"].astype("Int64")
+    playoff_df_display = playoff_df_display.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
+    })
+    
+    non_playoff_df_display = non_playoff_df[non_playoff_display_cols].copy()
+    non_playoff_df_display["seed"] = non_playoff_df_display["seed"].astype("Int64")
+    non_playoff_df_display = non_playoff_df_display.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
+    })
+    
+    print("=== Playoff teams ===")
+    print(playoff_df_display.to_string(index=False))
+    print("\n=== Non-playoff teams ===")
+    print(non_playoff_df_display.to_string(index=False))
+
+    # Save full dataframes to CSV (with all columns)
+    combined = pd.concat([playoff_df, non_playoff_df], ignore_index=True)
+    # Determine write directory (use OUTPUT_DIR when running in Docker)
+    is_docker = os.environ.get("DOCKER", "").lower() in ("true", "1", "yes")
+    output_dir = os.environ.get("OUTPUT_DIR")
+    write_dir = output_dir if (is_docker and output_dir) else os.path.abspath(".")
+    os.makedirs(write_dir, exist_ok=True)
+
+    # Save CSV to write_dir
+    combined_path = os.path.join(write_dir, "nfl_team_records.csv")
+    combined.to_csv(combined_path, index=False)
+
+    # Also write JSON output for consumption by external programs (COBOL, etc.)
+    combined_records = combined.where(pd.notnull(combined), None).to_dict(orient="records")
+    with open(os.path.join(write_dir, "nfl_team_records.json"), "w", encoding="utf-8") as jf:
+        json.dump(combined_records, jf, ensure_ascii=False, indent=2)
+
+    # Write separate JSON files for playoff and non-playoff sections (display columns)
+    playoff_records = playoff_df[playoff_display_cols].where(pd.notnull(playoff_df[playoff_display_cols]), None).to_dict(orient="records")
+    non_playoff_records = non_playoff_df[non_playoff_display_cols].where(pd.notnull(non_playoff_df[non_playoff_display_cols]), None).to_dict(orient="records")
+    with open(os.path.join(write_dir, "playoff_team_records.json"), "w", encoding="utf-8") as pf:
+        json.dump(playoff_records, pf, ensure_ascii=False, indent=2)
+    with open(os.path.join(write_dir, "non_playoff_team_records.json"), "w", encoding="utf-8") as nf:
+        json.dump(non_playoff_records, nf, ensure_ascii=False, indent=2)
+
+    # Write an HTML report with display columns only
+    updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    
+    # Convert seed to int for HTML
+    playoff_df_html = playoff_df[playoff_display_cols].copy()
+    playoff_df_html["seed"] = playoff_df_html["seed"].astype("Int64")
+    playoff_df_html = playoff_df_html.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
+    })
+    
+    non_playoff_df_html = non_playoff_df[non_playoff_display_cols].copy()
+    non_playoff_df_html["seed"] = non_playoff_df_html["seed"].astype("Int64")
+    non_playoff_df_html = non_playoff_df_html.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
+    })
+    
+    # Build sortable HTML tables
+    def build_sortable_table(df, table_id):
+        html_parts = [f'<table id="{table_id}">']
+        html_parts.append('<thead><tr>')
+        for idx, col in enumerate(df.columns):
+            html_parts.append(f'<th onclick="sortTable(\'{table_id}\', {idx})">{col}</th>')
+        html_parts.append('</tr></thead><tbody>')
+        
+        for _, row in df.iterrows():
+            html_parts.append('<tr>')
+            for val in row:
+                html_parts.append(f'<td>{val}</td>')
+            html_parts.append('</tr>')
+        
+        html_parts.append('</tbody></table>')
+        return ''.join(html_parts)
+    
+    playoff_table_html = build_sortable_table(playoff_df_html, "playoff-table")
+    non_playoff_table_html = build_sortable_table(non_playoff_df_html, "non-playoff-table")
+    
+    html = """
+<!doctype html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\" />
+    <title>NFL Teams & Playoff Picture</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 24px; }}
+        h1, h2 {{ margin-bottom: 8px; }}
+        .nav {{ margin-bottom: 16px; }}
+        .nav a {{ margin-right: 16px; padding: 8px 12px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }}
+        .nav a:hover {{ background: #0056b3; }}
+        .explanation {{ background: #e8f4f8; padding: 12px 16px; border-left: 4px solid #007bff; margin-bottom: 20px; border-radius: 4px; }}
+        .explanation h3 {{ margin-top: 0; color: #007bff; }}
+        .explanation p {{ margin: 6px 0; font-size: 0.9rem; }}
+        .explanation ul {{ margin: 6px 0; padding-left: 20px; font-size: 0.9rem; }}
+        table {{ border-collapse: collapse; width: 100%; margin-bottom: 32px; }}
+        th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
+        th {{ background: #f2f2f2; font-weight: bold; cursor: pointer; user-select: none; }}
+        th:hover {{ background: #e0e0e0; }}
+        th.sort-asc::after {{ content: ' ▲'; }}
+        th.sort-desc::after {{ content: ' ▼'; }}
+        .updated {{ color: #555; margin: 0 0 16px 0; font-size: 0.9rem; }}
+    </style>
+    <script>
+        function sortTable(tableId, columnIndex) {{
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const headers = table.querySelectorAll('th');
+            const currentHeader = headers[columnIndex];
+            
+            // Determine sort direction
+            let sortDir = 'asc';
+            if (currentHeader.classList.contains('sort-asc')) {{
+                sortDir = 'desc';
+            }}
+            
+            // Remove all sort classes
+            headers.forEach(h => {{
+                h.classList.remove('sort-asc', 'sort-desc');
+            }});
+            
+            // Add sort class to current header
+            currentHeader.classList.add('sort-' + sortDir);
+            
+            // Sort rows
+            rows.sort((a, b) => {{
+                const aCell = a.cells[columnIndex].textContent.trim();
+                const bCell = b.cells[columnIndex].textContent.trim();
+                
+                // Try to parse as number
+                const aNum = parseFloat(aCell);
+                const bNum = parseFloat(bCell);
+                
+                let comparison = 0;
+                if (!isNaN(aNum) && !isNaN(bNum)) {{
+                    comparison = aNum - bNum;
+                }} else {{
+                    comparison = aCell.localeCompare(bCell);
+                }}
+                
+                return sortDir === 'asc' ? comparison : -comparison;
+            }});
+            
+            // Reorder rows
+            rows.forEach(row => tbody.appendChild(row));
+        }}
+    </script>
+</head>
+<body>
+    <h1>NFL Teams & Playoff Picture</h1>
+    <div class=\"nav\">
+        <a href=\"nfl_all_teams.html\">View All Teams by Quality Score</a>
+    </div>
+    <p class=\"updated\">Last updated: {updated_at}</p>
+    
+    <div class=\"explanation\">
+        <h3>About Quality Score</h3>
+        <p><strong>Quality Score</strong> is a composite metric that ranks teams based on four key performance factors:</p>
+        <ul>
+            <li><strong>Win % (40% weight):</strong> Overall winning percentage—the foundation of team success</li>
+            <li><strong>Strength of Schedule (20% weight):</strong> Average win percentage of all opponents faced—rewards teams who played tougher competition</li>
+            <li><strong>Wins vs Winning Teams (2.5 pts each):</strong> Quality wins against teams with winning records (>50% win %)</li>
+            <li><strong>Playoff Wins (4 pts each):</strong> Victories against current playoff-contending teams—most prestigious wins</li>
+        </ul>
+        <p><strong>Formula:</strong> (Win % × 40) + (SOS × 20) + (Wins vs Winning × 2.5) + (Playoff Wins × 4)</p>
+        <p>Higher scores indicate stronger overall team quality considering both results and strength of opposition.</p>
+    </div>
+    
+    <h2>Playoff Teams</h2>
+    {playoff_table}
+    <h2>Non-Playoff Teams</h2>
+    {non_table}
+</body>
+</html>
+""".format(
+        updated_at=updated_at,
+        playoff_table=playoff_table_html,
+        non_table=non_playoff_table_html,
+    )
+
+    with open("nfl_team_records.html", "w", encoding="utf-8") as f:
+        f.write(html)
+
+    # Generate a separate HTML file with all teams combined (sorted by quality score)
+    all_teams_df = combined[playoff_display_cols].copy()
+    all_teams_df = all_teams_df.sort_values(by="quality_score", ascending=False).reset_index(drop=True)
+    all_teams_df["seed"] = all_teams_df["seed"].astype("Int64")
+    all_teams_df = all_teams_df.rename(columns={
+        "playoff_beaten_count": "playoff_beaten (dups)",
+        "playoff_teams_played": "playoff_teams_played (dups)",
+        "wins_vs_winning": "wins_vs_winning (dups)",
+        "opponents_beaten_vs_winning": "opponents_beaten_vs_winning (dups)"
+    })
+    
+    all_teams_table_html = build_sortable_table(all_teams_df, "all-teams-table")
+    
+    all_teams_html = """
+<!doctype html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\" />
+    <title>NFL Teams - All Teams by Quality Score</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 24px; }}
+        h1 {{ margin-bottom: 8px; }}
+        .nav {{ margin-bottom: 16px; }}
+        .nav a {{ margin-right: 16px; padding: 8px 12px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }}
+        .nav a:hover {{ background: #0056b3; }}
+        .explanation {{ background: #e8f4f8; padding: 12px 16px; border-left: 4px solid #007bff; margin-bottom: 20px; border-radius: 4px; }}
+        .explanation h3 {{ margin-top: 0; color: #007bff; }}
+        .explanation p {{ margin: 6px 0; font-size: 0.9rem; }}
+        .explanation ul {{ margin: 6px 0; padding-left: 20px; font-size: 0.9rem; }}
+        table {{ border-collapse: collapse; width: 100%; margin-bottom: 32px; }}
+        th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
+        th {{ background: #f2f2f2; font-weight: bold; cursor: pointer; user-select: none; }}
+        th:hover {{ background: #e0e0e0; }}
+        th.sort-asc::after {{ content: ' ▲'; }}
+        th.sort-desc::after {{ content: ' ▼'; }}
+        .updated {{ color: #555; margin: 0 0 16px 0; font-size: 0.9rem; }}
+    </style>
+    <script>
+        function sortTable(tableId, columnIndex) {{
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const headers = table.querySelectorAll('th');
+            const currentHeader = headers[columnIndex];
+            
+            // Determine sort direction
+            let sortDir = 'asc';
+            if (currentHeader.classList.contains('sort-asc')) {{
+                sortDir = 'desc';
+            }}
+            
+            // Remove all sort classes
+            headers.forEach(h => {{
+                h.classList.remove('sort-asc', 'sort-desc');
+            }});
+            
+            // Add sort class to current header
+            currentHeader.classList.add('sort-' + sortDir);
+            
+            // Sort rows
+            rows.sort((a, b) => {{
+                const aCell = a.cells[columnIndex].textContent.trim();
+                const bCell = b.cells[columnIndex].textContent.trim();
+                
+                // Try to parse as number
+                const aNum = parseFloat(aCell);
+                const bNum = parseFloat(bCell);
+                
+                let comparison = 0;
+                if (!isNaN(aNum) && !isNaN(bNum)) {{
+                    comparison = aNum - bNum;
+                }} else {{
+                    comparison = aCell.localeCompare(bCell);
+                }}
+                
+                return sortDir === 'asc' ? comparison : -comparison;
+            }});
+            
+            // Reorder rows
+            rows.forEach(row => tbody.appendChild(row));
+        }}
+    </script>
+</head>
+<body>
+    <h1>NFL Teams - All Teams with Quality Score</h1>
+    <div class=\"nav\">
+        <a href=\"nfl_team_records.html\">View Playoff/Non-Playoff Split</a>
+    </div>
+    <p class=\"updated\">Last updated: {updated_at}</p>
+    
+    <div class=\"explanation\">
+        <h3>About Quality Score</h3>
+        <p><strong>Quality Score</strong> is a composite metric that ranks teams based on four key performance factors:</p>
+        <ul>
+            <li><strong>Win % (40% weight):</strong> Overall winning percentage—the foundation of team success</li>
+            <li><strong>Strength of Schedule (20% weight):</strong> Average win percentage of all opponents faced—rewards teams who played tougher competition</li>
+            <li><strong>Wins vs Winning Teams (2.5 pts each):</strong> Quality wins against teams with winning records (>50% win %)</li>
+            <li><strong>Playoff Wins (4 pts each):</strong> Victories against current playoff-contending teams—most prestigious wins</li>
+        </ul>
+        <p><strong>Formula:</strong> (Win % × 40) + (SOS × 20) + (Wins vs Winning × 2.5) + (Playoff Wins × 4)</p>
+        <p>Higher scores indicate stronger overall team quality considering both results and strength of opposition.</p>
+    </div>
+    
+    {all_teams_table}
+</body>
+</html>
+""".format(
+        updated_at=updated_at,
+        all_teams_table=all_teams_table_html,
+    )
+
+    with open("nfl_all_teams.html", "w", encoding="utf-8") as f:
+        f.write(all_teams_html)
+
+    # Move CSV and HTML to OUTPUT_DIR only if DOCKER environment is set
+    is_docker = os.environ.get("DOCKER", "").lower() in ("true", "1", "yes")
+    output_dir = os.environ.get("OUTPUT_DIR")
+    
+    if is_docker and output_dir:
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            # Move CSV
+            src_csv = os.path.abspath("nfl_team_records.csv")
+            dst_csv = os.path.join(output_dir, "nfl_team_records.csv")
+            if os.path.exists(src_csv):
+                if os.path.exists(dst_csv):
+                    os.remove(dst_csv)
+                shutil.move(src_csv, dst_csv)
+            # Move HTML
+            src_html = os.path.abspath("nfl_team_records.html")
+            dst_html = os.path.join(output_dir, "nfl_team_records.html")
+            if os.path.exists(src_html):
+                if os.path.exists(dst_html):
+                    os.remove(dst_html)
+                shutil.move(src_html, dst_html)
+            # Move all-teams HTML
+            src_all = os.path.abspath("nfl_all_teams.html")
+            dst_all = os.path.join(output_dir, "nfl_all_teams.html")
+            if os.path.exists(src_all):
+                if os.path.exists(dst_all):
+                    os.remove(dst_all)
+                shutil.move(src_all, dst_all)
+            # Move JSON outputs as well
+            try:
+                src_json = os.path.abspath("nfl_team_records.json")
+                dst_json = os.path.join(output_dir, "nfl_team_records.json")
+                if os.path.exists(src_json):
+                    if os.path.exists(dst_json):
+                        os.remove(dst_json)
+                    shutil.move(src_json, dst_json)
+
+                src_pf = os.path.abspath("playoff_team_records.json")
+                dst_pf = os.path.join(output_dir, "playoff_team_records.json")
+                if os.path.exists(src_pf):
+                    if os.path.exists(dst_pf):
+                        os.remove(dst_pf)
+                    shutil.move(src_pf, dst_pf)
+
+                src_nf = os.path.abspath("non_playoff_team_records.json")
+                dst_nf = os.path.join(output_dir, "non_playoff_team_records.json")
+                if os.path.exists(src_nf):
+                    if os.path.exists(dst_nf):
+                        os.remove(dst_nf)
+                    shutil.move(src_nf, dst_nf)
+            except Exception:
+                # Ignore individual JSON move errors but continue
+                pass
+            print(f"Reports moved to: {output_dir}")
+        except Exception as e:
+            print(f"Warning: failed to move files to OUTPUT_DIR: {e}")
+    else:
+        print("Reports generated locally: nfl_team_records.csv, nfl_team_records.html, nfl_all_teams.html")
